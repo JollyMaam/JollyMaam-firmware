@@ -118,12 +118,13 @@ static const struct set_remap *sticks(void)
  * use.  Its state starts over with another remap slot or new settings. */
 static void remap(u32 now)
 {
-    u32 edits = set_edits();
+    u32 edits = set_edits(), out;
 
     c.turbo_max = 0;
     if (!c.linked || c.stopping || c.calibrating || ux_quick(NULL)) {
         if (c.remap_live) remap_reset();
         c.remap_live = 0;
+        macro_stop();
         quick_stop(now);
         return;
     }
@@ -134,11 +135,13 @@ static void remap(u32 now)
     }
     if (c.remap_live != c.remap + 1 || c.remap_edits != edits) {
         remap_reset();
+        macro_stop();
         c.remap_live = (u8)(c.remap + 1);
         c.remap_edits = edits;
     }
-    c.pad.buttons = quick_play(c.pad.buttons, remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max,
-                                                         quick_keys()), now, &c.turbo_max);
+    out = remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max, quick_keys());
+    out = macro_play(c.remap, remap_macros(), out, now, &c.turbo_max);
+    c.pad.buttons = quick_play(c.pad.buttons, out, now, &c.turbo_max);
 }
 
 /* The switch moved: the session ends, and Home connects the other kind
@@ -730,7 +733,7 @@ void ctl_main(void)
         if (gesture && (!next || (s32)(gesture - next) < 0)) next = gesture;
         if (power && (!next || (s32)(power - next) < 0)) next = power;
         if (c.rumble_until && (!next || (s32)(c.rumble_until - next) < 0)) next = c.rumble_until;
-        next = earliest(next, earliest(remap_deadline(), quick_deadline()));
+        next = earliest(next, earliest(earliest(remap_deadline(), macro_deadline()), quick_deadline()));
         if (c.calibrating) next = plat_ms() + CAL_SAMPLE_MS;
         /* a report is built when the link wants it (bt_input_due_us: just
          * before the connection event it is for) */
@@ -889,6 +892,12 @@ u32 quick_record_step(u32 in, u32 now) { (void)now; return in; }
 u32 quick_play(u32 in, u32 out, u32 now, u32 *every) { (void)in; (void)now; (void)every; return out; }
 void quick_stop(u32 now) { (void)now; }
 u32 quick_deadline(void) { return 0; }
+static const struct remap_macros test_macros;
+const struct remap_macros *remap_macros(void) { return &test_macros; }
+u32 macro_play(u8 remap, const struct remap_macros *r, u32 out, u32 now, u32 *every)
+{ (void)remap; (void)r; (void)now; (void)every; return out; }
+void macro_stop(void) {}
+u32 macro_deadline(void) { return 0; }
 void quick_signal(u8 sig, u32 now) { (void)sig; (void)now; }
 u8 quick_led(u32 now, u32 *next, u32 held) { (void)now; (void)held; *next = 0; return LED_SIGNAL_NONE; }
 const u8 ux_first_slot = 3;

@@ -1168,13 +1168,14 @@ static const struct set_remap *sticks(void)
  * Its state starts over with another remap slot or new settings. */
 static void remap(u32 now)
 {
-    u32 edits = set_edits();
+    u32 edits = set_edits(), out;
 
     c.ux_buttons = c.pad.buttons;
     c.turbo_max = 0;
     if (c.kind != CTL_CONNECTED || c.calibrating || ux_quick(NULL)) {
         if (c.remap_live) remap_reset();
         c.remap_live = 0;
+        macro_stop();
         quick_stop(now);
         return;
     }
@@ -1185,11 +1186,13 @@ static void remap(u32 now)
     }
     if (c.remap_live != c.remap + 1 || c.remap_edits != edits) {
         remap_reset();
+        macro_stop();
         c.remap_live = (u8)(c.remap + 1);
         c.remap_edits = edits;
     }
-    c.pad.buttons = quick_play(c.ux_buttons, remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max,
-                                                        quick_keys()), now, &c.turbo_max);
+    out = remap_step(set_remap(c.remap), c.pad.buttons, now, &c.turbo_max, quick_keys());
+    out = macro_play(c.remap, remap_macros(), out, now, &c.turbo_max);
+    c.pad.buttons = quick_play(c.ux_buttons, out, now, &c.turbo_max);
 }
 
 static void read_input(u32 now)
@@ -1465,7 +1468,7 @@ void ctl_main(void)
         if (c.kicking[0]) c.house_at = earliest(c.house_at, c.kick_until[0]);
         if (c.kicking[1]) c.house_at = earliest(c.house_at, c.kick_until[1]);
         deadline = earliest(c.house_at, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
-        deadline = earliest(deadline, earliest(remap_deadline(), quick_deadline()));
+        deadline = earliest(deadline, earliest(earliest(remap_deadline(), macro_deadline()), quick_deadline()));
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         c.stats.passes++;
         util_stat_add(&c.stats.pass, plat_us() - start);

@@ -114,6 +114,7 @@ U2CB_PAD_SOURCES += src/core/imu_i2c.c
 U2CB_PAD_SOURCES += src/core/leds_mono.c
 U2CB_PAD_SOURCES += src/core/remap.c
 U2CB_PAD_SOURCES += src/core/quick.c
+U2CB_PAD_SOURCES += src/core/macro.c
 U2CB_PAD_SOURCES += src/core/settings.c
 U2CB_PAD_SOURCES += src/core/settings_ux.c
 U2CB_PAD_SOURCES += src/core/usb.c

@@ -12,7 +12,9 @@
  * from the later of its press and the modifier coming on; the first modifier
  * on for a key wins.  Quick settings' keys (q) override all that: a turbo
  * step pulses what the key sends from its press, a mapped key sends its keys
- * and nothing else, the macro's key sends nothing (quick.c plays it). */
+ * and nothing else, the macro's key sends nothing (quick.c plays it).  Rules
+ * that play the remap's saved macros only say so (remap_macros); macro.c
+ * plays them. */
 
 static struct {
     u32 prev;                        /* the input last pass */
@@ -25,6 +27,7 @@ static struct {
      * the other. */
     u32 at[REMAP_RULES];
     u32 next;
+    struct remap_macros macros;      /* for macro.c */
 } rm;
 
 static u32 outputs(const struct remap_rule *r)
@@ -54,6 +57,7 @@ u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report, co
     u32 quick = q->macro ? 1u << (q->macro - 1) : 0;   /* keys quick settings sends for */
 
     rm.next = 0;
+    memset(&rm.macros, 0, sizeof(rm.macros));
     memset(modifier, 0, sizeof(modifier));
     for (i = 0; i < REMAP_INPUTS; i++)
         if (pressed & (1u << i)) rm.down_at[i] = now;
@@ -97,6 +101,20 @@ u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report, co
             event = (pressed & key) && (rm.armed & key) && now - rm.up_at[r->input] < ms;
             if (event) doubled |= key;
             break;
+        }
+        if (remap_macro_effect(r->effect)) {
+            u8 mb = r->rate && r->rate <= REMAP_MACROS ? (u8)(1u << (r->rate - 1)) : 0;
+
+            if (r->effect == RE_MACRO && active) {
+                rm.macros.held |= mb;
+                if (!(rm.active & bit)) rm.macros.start |= mb;   /* as it comes on: from the start */
+            } else if (r->effect == RE_PLAY_MACRO && event) {
+                rm.macros.start |= mb;
+            } else if (r->effect == RE_TOGGLE_MACRO && event) {
+                rm.macros.toggle |= mb;
+            }
+            rm.active = active ? rm.active | bit : rm.active & ~bit;
+            continue;
         }
         if (active && !(rm.active & bit) && r->effect != RE_TAP) rm.at[i] = now;
         rm.active = active ? rm.active | bit : rm.active & ~bit;
@@ -174,6 +192,11 @@ void remap_reset(void)
 u32 remap_deadline(void)
 {
     return rm.next;
+}
+
+const struct remap_macros *remap_macros(void)
+{
+    return &rm.macros;
 }
 
 #ifdef UNITTEST
@@ -339,6 +362,19 @@ int main(void)
     at(PAD_L2 | PAD_R2, 14500); CHECK(out == (PAD_R2 | PAD_SOUTH));
     rule(2, RT_PRESSED, IN_R2, 0, RE_TAP, PAD_L2, 0);
     at(0, 14600); at(PAD_R2, 14601); CHECK(out == (PAD_L2 | PAD_SOUTH));
+    /* Macro rules only say what to play: held while R4 is (macro 2), started
+     * by a tap of L4 (macro 1), toggled by a press of L3 (macro 8). */
+    memset(&m, 0, sizeof(m)); remap_reset();
+    m.map[IN_R4] = REMAP_OFF;
+    rule(0, RT_HELD, IN_R4, 0, RE_MACRO, 0, 2);
+    rule(1, RT_TAPPED, IN_L4, 200, RE_PLAY_MACRO, 0, 1);
+    rule(2, RT_PRESSED, IN_L3, 0, RE_TOGGLE_MACRO, 0, 8);
+    at(PAD_R4 | PAD_L4, 15000); CHECK(out == PAD_L4 && remap_macros()->held == 2 && remap_macros()->start == 2);
+    at(PAD_R4 | PAD_L4, 15001); CHECK(remap_macros()->held == 2 && !remap_macros()->start);
+    at(PAD_R4, 15050); CHECK(out == 0 && remap_macros()->held == 2 && remap_macros()->start == 1);
+    at(PAD_L3, 15060); CHECK(remap_macros()->toggle == 0x80 && !remap_macros()->held && !remap_macros()->start);
+    at(PAD_L3, 15070); CHECK(!remap_macros()->toggle);
+    remap_reset(); CHECK(!remap_macros()->held);
     /* Clock wrap. */
     memset(&m, 0, sizeof(m)); remap_reset();
     rule(0, RT_HELD, 0, 0, RE_TURBO, PAD_SOUTH, 10);

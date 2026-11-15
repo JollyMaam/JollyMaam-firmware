@@ -23,12 +23,12 @@
  * each other from when the last one went out: a stall moves the rest later
  * rather than squeezing them together.
  *
- * Steps are two bytes: the wait since the previous one in QUICK_UNIT_MS,
- * then QUICK_PRESS | key, key alone for a release, or QUICK_WAIT_ONLY. */
+ * Steps are a saved macro's (pad.h, MACRO_*): two bytes, the wait since
+ * the previous one, then a press, a release or a plain wait. */
 
-#define QUICK_UNIT_MS     4
-#define QUICK_PRESS       0x20
-#define QUICK_WAIT_ONLY   0xff
+#define QUICK_UNIT_MS     MACRO_UNIT_MS
+#define QUICK_PRESS       MACRO_PRESS
+#define QUICK_WAIT_ONLY   MACRO_WAIT_ONLY
 #define QUICK_CHORD_MS    50        /* presses this close together are one chord */
 #define QUICK_MIN_PRESS   40        /* a recorded press lasts at least this: hosts poll every 7.5-15 ms */
 #define QUICK_KEYS        (PAD_DIGITAL & ~(PAD_HOME | PAD_M))   /* keys that take a turbo, a mapping or the macro */

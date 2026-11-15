@@ -660,8 +660,30 @@ int plat_store_read(u16 key, void *buf, u16 len)
     return syscfg_read(key, buf, len);
 }
 
+/* The SDK reads whole items: the last one read is kept here (macro.c reads
+ * its steps a few bytes at a time) until a write. */
+static struct {
+    u16 key, len;
+    u8 data[256];
+} near;
+
+int plat_store_read_at(u16 key, u16 offset, void *buf, u16 len)
+{
+    if (key != near.key) {
+        int n = syscfg_read(key, near.data, sizeof(near.data));
+
+        near.key = n > 0 ? key : 0;
+        near.len = (u16)(n > 0 ? n : 0);
+    }
+    if (!near.key || offset >= near.len) return 0;
+    if (len > near.len - offset) len = (u16)(near.len - offset);
+    memcpy(buf, near.data + offset, len);
+    return len;
+}
+
 int plat_store_write(u16 key, const void *buf, u16 len)
 {
+    near.key = 0;
     return syscfg_write(key, (void *)buf, len);
 }
 

@@ -101,7 +101,8 @@
  *                         ones as fit; count 0 past the last
  *   `0x21` READ           CDB byte 2: target (0-7 slot, 8 palette, 9
  *                         calibration, 10-17 remap slot, 18 the base
- *                         remap); in: u8 version, target, count, then per
+ *                         remap, 19-26 the remap slots' macros, 27 the
+ *                         base's); in: u8 version, target, count, then per
  *                         field id, set, len, value
  *   `0x22` WRITE          out: items `{target, id, len, value}`, collected;
  *                         `len` 0: default; id 0: the whole target

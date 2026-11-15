@@ -37,6 +37,10 @@ _Static_assert(STORE_B >= STORE_A + STORE_BANK || STORE_A >= STORE_B + STORE_BAN
 
 static u32 bank, end;            /* the bank in use, where its log ends; 0: not read yet */
 static u32 valid;                /* the end of its whole records (end, unless one is torn) */
+static struct {
+    u32 at;
+    u8 key, len;                 /* key 0: none */
+} near;                          /* plat_store_read_at's last record, until a write */
 
 static u32 read32(u32 at)
 {
@@ -111,6 +115,7 @@ static void find_log(void)
         a = 1;
     }
     bank = a >= b ? STORE_A : STORE_B;
+    near.key = 0;
     for (end = bank + HEADER; (n = record(end, &key, &len, 1)); end += n) {}
     valid = end;
     /* A torn record: nothing may be written over it, so the next write
@@ -188,6 +193,25 @@ int plat_store_read(u16 key, void *buf, u16 len)
     return (int)n;
 }
 
+/* A record's address is kept from one read to the next, so reading a macro's
+ * steps (macro.c) does not walk the log each time. */
+int plat_store_read_at(u16 key, u16 offset, void *buf, u16 len)
+{
+    if (!bank) find_log();
+    u32 n;
+
+    if (key != near.key) {
+        near.at = newest(key, &n);
+        near.key = (u8)(near.at ? key : 0);
+        near.len = (u8)n;
+        if (!near.at) return 0;
+    }
+    if (offset >= near.len) return 0;
+    if (len > near.len - offset) len = (u16)(near.len - offset);
+    plat_flash_read(near.at + 4 + offset, buf, len);
+    return len;
+}
+
 /* The record at holds len bytes the same as data. */
 static int same(u32 at, const u8 *data, u32 len)
 {
@@ -208,6 +232,7 @@ int plat_store_write(u16 key, const void *buf, u16 len)
 
     if (!key || key >= KEY_MAX || len > DATA_MAX) return 0;
     if (!bank) find_log();
+    near.key = 0;                /* records move */
     at = newest(key, &n);
     if (at && n == len && same(at, buf, len)) return len;
     if (end + padded(len) > bank + STORE_BANK) compact();
@@ -309,6 +334,14 @@ int main(void)
     CHECK(plat_store_read(3, v, sizeof(v)) == 3 && !memcmp(v, "new", 3));
     for (i = 1; i <= 12; i++)
         if (i != 3) CHECK(plat_store_read((u16)i, v, sizeof(v)) == sizeof(v));
+
+    /* Part of a record, kept across reads, a write moving it. */
+    CHECK(plat_store_read_at(3, 1, v, 5) == 2 && !memcmp(v, "ew", 2));
+    CHECK(plat_store_read_at(3, 3, v, 1) == 0 && plat_store_read_at(40, 0, v, 1) == 0);
+    for (round = 0; round < 30; round++) plat_store_write(4, big, (u16)(100 + round));   /* compacts */
+    CHECK(plat_store_read_at(3, 0, v, 3) == 3 && !memcmp(v, "new", 3));
+    CHECK(plat_store_write(3, "renew", 5) == 5);
+    CHECK(plat_store_read_at(3, 2, v, 3) == 3 && !memcmp(v, "new", 3));
     return TEST_DONE("store");
 }
 #endif

@@ -596,12 +596,38 @@ struct set_slot {
  * keys: while it is on, whatever they send while held pulses at its rate. */
 enum { RT_NONE, RT_HELD, RT_HELD_FOR, RT_PRESSED, RT_RELEASED, RT_TAPPED, RT_DOUBLE, RT_COUNT };
 enum { RE_HOLD, RE_TURBO, RE_NOTHING, RE_TAP, RE_TOGGLE_HOLD, RE_TOGGLE_TURBO,
-       RE_TURBO_MODIFIER, RE_TOGGLE_TURBO_MODIFIER, RE_COUNT };
+       RE_TURBO_MODIFIER, RE_TOGGLE_TURBO_MODIFIER, RE_MACRO, RE_PLAY_MACRO, RE_TOGGLE_MACRO, RE_COUNT };
+/* The macro effects play one of the remap slot's macros, the rule's rate its
+ * number (1 the first), no outputs: macro (level) from the start as it comes
+ * on and again while on; play macro (event) once; toggle macro (event) starts
+ * it looping or stops the loop. */
 
 static inline int remap_level_effect(u8 e)
 {
-    return e < RE_TAP || e == RE_TURBO_MODIFIER;
+    return e < RE_TAP || e == RE_TURBO_MODIFIER || e == RE_MACRO;
 }
+
+static inline int remap_macro_effect(u8 e)
+{
+    return e >= RE_MACRO && e <= RE_TOGGLE_MACRO;
+}
+
+/* A remap slot's macros (each remap slot and the base have their own; a
+ * slot with none set plays the base's): a separate target and store record,
+ * never in RAM, played from flash (macro.c).  The field is entries one
+ * after another, a zero length ending them: {u8 length of the rest, u8 name
+ * length, the name (UTF-8, up to MACRO_NAME), steps}.  A step is two bytes:
+ * the wait since the previous one in MACRO_UNIT_MS, then MACRO_PRESS | key,
+ * key alone for its release, or MACRO_WAIT_ONLY (keys: PAD_* bit numbers,
+ * as rules have them).  Rules play them by number, 1 the first. */
+#ifndef REMAP_MACRO_BYTES
+#define REMAP_MACRO_BYTES 200
+#endif
+#define REMAP_MACROS    8
+#define MACRO_NAME      16
+#define MACRO_UNIT_MS   4
+#define MACRO_PRESS     0x20
+#define MACRO_WAIT_ONLY 0xff
 
 struct remap_rule {
     u8 trigger, input;
@@ -655,7 +681,8 @@ void in_response(const struct set_remap *m, struct pad *pad);
 #define TARGET_CAL     (SLOTS + 1)
 #define TARGET_REMAP   (SLOTS + 2)
 #define TARGET_BASE    (TARGET_REMAP + SLOTS)   /* the base remap: what remap slots inherit */
-#define TARGETS        (TARGET_BASE + 1)
+#define TARGET_MACROS  (TARGET_BASE + 1)       /* the remap slots' macros, then the base's */
+#define TARGETS        (TARGET_MACROS + SLOTS + 1)
 
 enum { SET_OK, SET_UNKNOWN, SET_BAD_LENGTH, SET_RANGE, SET_FULL,
        SET_NOT_HELD };            /* ephemeral: a remap other than the one held (in use) */
@@ -679,6 +706,10 @@ const struct set_cal *set_cal(void);
  * field they have not set from (but their names; A keeps its own swap). */
 #define REMAP_BASE SLOTS
 const struct set_remap *set_remap(u8 remap);
+/* Macro n (1-based) of remap slot remap (or REMAP_BASE; one without macros
+ * set: the base's): the store key and the offsets of its steps in that
+ * record, [*from, *to); 0: no such macro. */
+int set_macro(u8 remap, u8 n, u16 *key, u16 *from, u16 *to);
 u32 set_edits(void);                     /* counts commits from the tools */
 u32 set_changes(void);                   /* counts every change of a value, the pad's own too */
 void set_cal_store(const struct set_cal *cal);
@@ -819,6 +850,22 @@ struct remap_quick {
 u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report, const struct remap_quick *q);
 void remap_reset(void);
 u32 remap_deadline(void);                   /* the next turbo edge, pulse end or hold time; 0: none */
+/* The macro rules of the last remap_step, a bit per macro (bit 0: macro 1):
+ * level rules on, and this pass's starts (a level rule's as it comes on)
+ * and loop toggles. */
+struct remap_macros { u8 held, start, toggle; };
+const struct remap_macros *remap_macros(void);
+
+/* ---- macro.c ------------------------------------------------------------ */
+
+/* The remap slot's macros, played from flash after the remap (so they
+ * trigger no rule), one at a time: a new start replaces the one playing.
+ * While one plays it owns the keys it uses (the d-pad as one).  Connected
+ * and the remap running: out = macro_play(remap slot, remap_macros(),
+ * remap_step's out, ...); macro_stop wherever the remap is reset. */
+u32 macro_play(u8 remap, const struct remap_macros *r, u32 out, u32 now, u32 *every_report);
+void macro_stop(void);
+u32 macro_deadline(void);
 
 /* ---- quick.c ------------------------------------------------------------ */
 
@@ -1200,6 +1247,9 @@ extern const char board_short_name[];   /* board_name where a name has a hard li
                                          * use it define it */
 int plat_store_read(u16 key, void *buf, u16 len);
 int plat_store_write(u16 key, const void *buf, u16 len);
+/* Part of a record: len bytes from offset, fast enough for the input path
+ * (macro.c's steps); returns the bytes read, 0 past its end or none. */
+int plat_store_read_at(u16 key, u16 offset, void *buf, u16 len);
 /* core/store.c's flash, on the boards that build it (Telink, YC3121): reads
  * and writes of any length and alignment, an erase of the 4 KiB sector at
  * a multiple of it (store.h: STORE_SECTOR); 1 done, 0 refused or failed. */

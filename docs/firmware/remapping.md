@@ -149,10 +149,42 @@ Tap is one pulse of `ux_timeouts.tap_ms`. Turbo is 1–30 Hz, starting down,
 timed by the clock; after a stall it does not catch up. Rate 0 (max) flips the
 keys on every report handed over, starting down.
 
+## Saved macros
+
+Each remap slot and the base have their own macros (`src/core/macro.c`):
+a separate settings target per remap slot (`macros-south` … `macros-right`,
+`macros-base`; store keys 29–37) with one field, up to 8 named macros in
+`REMAP_MACRO_BYTES` (200; 146 on the U2CW). A remap slot with none set plays
+the base's. They are never in RAM: a write goes to flash at commit (so
+ephemeral mode refuses it), and a macro plays from flash a step at a time
+(`plat_store_read_at`; core/store.c keeps the record's address until a
+write, the Jieli SDK's store the last record read).
+
+The bytes are entries one after another, a zero length ending them:
+`{length of the rest, name length, name (UTF-8, up to 16), steps}`, the
+steps as the quick settings macro's. In text (padtool, the web page):
+`jump: +south 40 -south 300; dash: +right 100 +east 40 -east -right`, a
+number the milliseconds before the next step, one at the end the pause
+before it can run again.
+
+Rules play them by number (the rule's rate byte, outputs empty):
+
+| Effect | Trigger | Plays |
+|---|---|---|
+| macro | held, held for | from the start as the rule comes on, again while it is on; off lets the run finish |
+| play macro | an event | once, from the start |
+| toggle macro | an event | looping, until the next toggle stops it at once |
+
+One plays at a time: a new start replaces the one playing. Like the quick
+settings macro it plays after the remap (no rules, no Home gestures) and
+owns the keys it uses (the d-pad as one) while it plays; it plays beside
+the quick settings macro, which keeps its own buffer. Edits to the remap
+or any setting stop it.
+
 ## Not yet
 
-- **Saved macros**: recorded and edited in config mode from the app, kept
-  in flash; remap rules that play them. Analog inputs are not recorded.
+- **Recording saved macros** from the pad (the web page could read the
+  pad's keys over the tool interface). Analog inputs are not recorded.
 - **Analog**: see below.
 - **Conditions/layers**: "only while KEY held", in the reserved byte.
 

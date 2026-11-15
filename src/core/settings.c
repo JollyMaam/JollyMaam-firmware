@@ -315,6 +315,18 @@ static const struct set_remap remap_south_default = {
              [IN_WEST] = REMAP_TO(IN_NORTH), [IN_NORTH] = REMAP_TO(IN_WEST) },
 };
 
+/* A remap slot's macros (pad.h): their own target and record, never in RAM:
+ * a write goes straight to flash at commit, reads and playing come from
+ * flash.  A slot with none set plays the base's. */
+static const struct set_field macro_fields[] = {
+    { .id = 1, .name = "macros", .type = T_BYTES, .offset = 0, .size = REMAP_MACRO_BYTES,
+      .help = "up to 8 named macros: key presses, releases and waits; rules play them (macro, "
+              "play macro, toggle macro); a remap slot with none plays the base's" },
+};
+#define MACROS_FIELD (&macro_fields[0])
+#define TARGET_BASE_MACROS (TARGET_MACROS + SLOTS)
+_Static_assert(REMAP_MACRO_BYTES + 6 <= 255, "a macros record's length is a byte");
+
 _Static_assert(sizeof(struct set_cal) == 112, "stored calibration layout");
 
 static const struct set_field cal_fields[] = {
@@ -361,12 +373,14 @@ _Static_assert(REMAP_BASE_STORED || !REMAPS_STORED, "remap slots inherit from a 
 #define STAGE_MAX     1024
 #endif
 /* syscfg items: slots 1-8, palette 9, calibration 10, remap slots 11-18,
- * their sticks 19-26; the base remap 27 and its sticks 28. */
+ * their sticks 19-26; the base remap 27 and its sticks 28; the remap
+ * slots' macros 29-36, the base's 37. */
 #define KEY_REMAP        11
 #define KEY_REMAP_STICKS (KEY_REMAP + SLOTS)
 #define KEY_BASE         (KEY_REMAP_STICKS + SLOTS)
 #define KEY_BASE_STICKS  (KEY_BASE + 1)
-#define KEYS             (KEY_BASE_STICKS + 1)
+#define KEY_MACROS       (KEY_BASE_STICKS + 1)
+#define KEYS             (KEY_MACROS + SLOTS + 1)
 
 static struct set_slot slots[SLOTS_STORED];
 static const struct set_slot none_slot = { .radio_type = PROFILE_NONE, .usb_type = PROFILE_NONE };
@@ -378,7 +392,10 @@ static struct set_cal cal;
 static struct set_remap remap;   /* the one remap held: the rest stay in flash */
 static u8 remap_held;            /* its target; 0: none */
 #endif
-static u32 set_bits[TARGETS];
+/* A bit per set field of each target kept but the macros (in flash only):
+ * the slots, palette, calibration, the remap slots kept, then the base. */
+static u32 set_bits[TARGET_REMAP + REMAPS_STORED + 1];
+#define BITS(t) set_bits[(t) == TARGET_BASE ? TARGET_REMAP + REMAPS_STORED : (t)]
 static u32 dirty;            /* a bit per target */
 static u32 tried;            /* a bit per remap target changed in ephemeral mode */
 static u32 edits;
@@ -388,9 +405,16 @@ static u8 commit_now, ephemeral;
 static u8 stage[STAGE_MAX];
 static u16 staged, staged_items;
 
+static int is_macros(u8 t)
+{
+    return t >= TARGET_MACROS && t < TARGETS;
+}
+
 static int stored(u8 t)
 {
     if (t < SLOTS) return t < SLOTS_STORED;
+    if (is_macros(t)) return REMAP_MACRO_BYTES && (t == TARGET_BASE_MACROS ? REMAP_BASE_STORED :
+                                                    t - TARGET_MACROS < REMAPS_STORED);
     if (t >= TARGET_REMAP && t < TARGET_BASE) return t - TARGET_REMAP < REMAPS_STORED;
     if (t == TARGET_BASE) return REMAP_BASE_STORED;
     if (t == TARGET_PALETTE) return !LEDS_MONO;
@@ -401,6 +425,7 @@ static const struct set_field *fields_of(u8 t, u32 *count)
 {
     if (t < SLOTS) { *count = COUNT(slot_fields); return slot_fields; }
     if (t == TARGET_PALETTE) { *count = PALETTE_FIELDS; return PALETTE_TABLE; }
+    if (is_macros(t)) { *count = COUNT(macro_fields); return macro_fields; }
     if (t >= TARGET_REMAP) { *count = COUNT(remap_fields); return remap_fields; }
     *count = COUNT(cal_fields);
     return cal_fields;
@@ -420,6 +445,7 @@ static u8 *remap_values(u8 t)
 
 static u8 *values_of(u8 t)
 {
+    if (is_macros(t)) return NULL;   /* never in RAM */
 #if LEDS_MONO
     return t < SLOTS ? (u8 *)&slots[t] : t == TARGET_PALETTE ? NULL :
 #else
@@ -431,17 +457,18 @@ static u8 *values_of(u8 t)
 /* A target is one record, a remap slot two: its rules, then its sticks. */
 static u32 parts_of(u8 t)
 {
-    return t >= TARGET_REMAP ? 2 : 1;
+    return t >= TARGET_REMAP && !is_macros(t) ? 2 : 1;
 }
 
 static u32 part_of(u8 t, u32 field)
 {
-    return t >= TARGET_REMAP && field >= REMAP_STICKS;
+    return t >= TARGET_REMAP && !is_macros(t) && field >= REMAP_STICKS;
 }
 
 static u16 key_of(u8 t, u32 part)
 {
     if (t < TARGET_REMAP) return (u16)(1 + t);
+    if (is_macros(t)) return (u16)(KEY_MACROS + t - TARGET_MACROS);
     if (t == TARGET_BASE) return (u16)(part ? KEY_BASE_STICKS : KEY_BASE);
     return (u16)((part ? KEY_REMAP_STICKS : KEY_REMAP) + t - TARGET_REMAP);
 }
@@ -540,10 +567,33 @@ static int rules_ok(const u8 *v)
         int timed = r->trigger == RT_HELD_FOR || r->trigger == RT_TAPPED || r->trigger == RT_DOUBLE;
 
         if (!r->trigger) continue;
+        if (remap_macro_effect(r->effect) && (o || !r->rate || r->rate > REMAP_MACROS)) return 0;
         if (r->trigger >= RT_COUNT || r->input >= REMAP_INPUTS || r->input == 15 ||
             r->effect >= RE_COUNT || level != remap_level_effect(r->effect) || (timed && !r->ms10) ||
             (o & ~REMAP_KEYS) || r->rate > REMAP_MAX_HZ || r->reserved)
             return 0;
+    }
+    return 1;
+}
+
+/* Entries {length, name length, name, steps}, a zero length ending them;
+ * steps a press, release or plain wait of a key a rule could send. */
+static int macros_ok(const u8 *v, u32 size)
+{
+    u32 o = 0, n = 0, i;
+
+    while (o < size && v[o]) {
+        u32 len = v[o], name = o + 1 < size ? v[o + 1] : 0xff;
+
+        if (o + 1 + len > size || name > MACRO_NAME || len < 3 + name || (len - 1 - name) & 1 ||
+            ++n > REMAP_MACROS)
+            return 0;
+        for (i = o + 2 + name; i < o + 1 + len; i += 2) {
+            u8 a = v[i + 1], key = a & (u8)~MACRO_PRESS;
+
+            if (a != MACRO_WAIT_ONLY && (key >= REMAP_INPUTS || key == 15)) return 0;
+        }
+        o += 1 + len;
     }
     return 1;
 }
@@ -560,6 +610,7 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
     }
     if (f == MAP_FIELD && !map_ok(v)) return SET_RANGE;
     if (f == RULES_FIELD && !rules_ok(v)) return SET_RANGE;
+    if (f == MACROS_FIELD && !macros_ok(v, len)) return SET_RANGE;
     switch (f->type) {
     case T_ENUM:
     case T_NUMBER:
@@ -578,6 +629,7 @@ static u8 check(const struct set_field *f, const u8 *v, u32 len)
 static void touch(u8 t)
 {
     changes++;
+    if (is_macros(t)) return;    /* written at commit */
     if (ephemeral) {
         if (t >= TARGET_REMAP) tried |= 1u << t;
         return;
@@ -614,10 +666,17 @@ static void own_default(u8 t, const struct set_field *f, u8 *out)
 static void base_value(const struct set_field *f, u8 *out);
 
 /* The reset path and read-only USB defaults query share these bytes. */
+static int stored_field(u8 t, const struct set_field *f, u32 bit, u8 *out);
+
 static void default_value(u8 t, const struct set_field *f, u8 *out)
 {
-    if (t >= TARGET_REMAP && (inherited(t) >> (f - remap_fields) & 1)) base_value(f, out);
-    else own_default(t, f, out);
+    if (is_macros(t)) {          /* a slot's: the base's */
+        if (t == TARGET_BASE_MACROS || !stored_field(TARGET_BASE_MACROS, f, 0, out)) own_default(t, f, out);
+    } else if (t >= TARGET_REMAP && (inherited(t) >> (f - remap_fields) & 1)) {
+        base_value(f, out);
+    } else {
+        own_default(t, f, out);
+    }
 }
 
 static int in_ram(u8 t);
@@ -637,7 +696,7 @@ static void inherit(void)
 
     for (t = TARGET_REMAP; t < TARGET_BASE && stored(t); t++)
         for (i = 0; in_ram(t) && i < COUNT(remap_fields); i++)
-            if (!(set_bits[t] & (1u << i)))
+            if (!(BITS(t) & (1u << i)))
                 default_value(t, &remap_fields[i], values_of(t) + remap_fields[i].offset);
 }
 
@@ -649,10 +708,10 @@ static void put(u8 t, const struct set_field *f, u32 bit, const u8 *v, u32 len)
     if (len) {
         memset(p, 0, f->size);
         memcpy(p, v, len < f->size ? len : f->size);
-        set_bits[t] |= 1u << bit;
+        BITS(t) |= 1u << bit;
     } else {
         default_value(t, f, p);
-        set_bits[t] &= ~(1u << bit);
+        BITS(t) &= ~(1u << bit);
     }
 }
 
@@ -713,7 +772,7 @@ static u32 encode(u8 t, u32 part, u8 *out)
     const struct set_field *f = fields_of(t, &n);
 
     for (i = 0; i < n; i++) {
-        if (!(set_bits[t] & (1u << i)) || part_of(t, i) != part) continue;
+        if (!(BITS(t) & (1u << i)) || part_of(t, i) != part) continue;
         out[used] = f[i].id;
         out[used + 1] = f[i].size;
         memcpy(out + used + 2, values_of(t) + f[i].offset, f[i].size);
@@ -822,10 +881,10 @@ static __attribute__((noinline)) void load(u8 t)
         n = plat_store_read(key_of(TARGET_BASE, part), buf, sizeof(buf));
         if (n > 0) unpack(TARGET_BASE, buf, (u32)n, v, mask);
     }
-    set_bits[t] = 0;
+    BITS(t) = 0;
     for (part = 0; part < parts_of(t); part++) {
         n = plat_store_read(key_of(t, part), buf, sizeof(buf));
-        if (n > 0) set_bits[t] |= unpack(t, buf, (u32)n, v, ~0u);
+        if (n > 0) BITS(t) |= unpack(t, buf, (u32)n, v, ~0u);
     }
     remap_held = t;
 }
@@ -843,6 +902,12 @@ static u8 *hold(u8 t)
 static int in_ram(u8 t)
 {
     return t < TARGET_REMAP;
+}
+
+static int stored_field(u8 t, const struct set_field *f, u32 bit, u8 *out)
+{
+    (void)t; (void)f; (void)bit; (void)out;
+    return 0;
 }
 
 static void base_value(const struct set_field *f, u8 *out)
@@ -902,7 +967,7 @@ void set_init(void)
         for (part = 0; part < parts_of(t); part++) {
             memset(buf, 0, sizeof(buf));
             n = plat_store_read(key_of(t, part), buf, sizeof(buf));
-            if (n > 0) set_bits[t] |= unpack(t, buf, (u32)n, values_of(t), ~0u);
+            if (n > 0) BITS(t) |= unpack(t, buf, (u32)n, values_of(t), ~0u);
             if (n > 0 && t < SLOTS) old_transport(t, buf, (u32)n);
         }
     }
@@ -1052,6 +1117,42 @@ const struct set_remap *set_remap(u8 remap)
 }
 #endif
 
+/* The macros record of target t: where its entries start and end; 0: none
+ * set. */
+static int macros_at(u8 t, u16 *at, u16 *end)
+{
+    u8 h[6];
+
+    if (!stored(t) || plat_store_read_at(key_of(t, 0), 0, h, sizeof(h)) != sizeof(h) ||
+        (h[0] | h[1] << 8) != MAGIC || h[2] != RECORD_VERSION || h[3] < 6 || h[4] != MACROS_FIELD->id ||
+        h[5] != MACROS_FIELD->size || h[3] < 6u + h[5])
+        return 0;
+    *at = 6;
+    *end = (u16)(6u + h[5]);
+    return 1;
+}
+
+int set_macro(u8 remap, u8 n, u16 *key, u16 *from, u16 *to)
+{
+    u8 t = (u32)remap + 1 <= REMAPS_STORED ? (u8)(TARGET_MACROS + remap) : TARGET_BASE_MACROS, e[2];
+    u16 o, end;
+
+    if (!macros_at(t, &o, &end)) {
+        t = TARGET_BASE_MACROS;
+        if (!macros_at(t, &o, &end)) return 0;
+    }
+    *key = key_of(t, 0);
+    while (n && o + 2u <= end && plat_store_read_at(*key, o, e, 2) == 2 && e[0] && o + 1u + e[0] <= end) {
+        if (!--n) {
+            *from = (u16)(o + 2u + e[1]);
+            *to = (u16)(o + 1u + e[0]);
+            return *from < *to;
+        }
+        o = (u16)(o + 1u + e[0]);
+    }
+    return 0;
+}
+
 u32 set_edits(void)
 {
     return edits;
@@ -1116,8 +1217,28 @@ u32 set_write(const u8 *in, u32 len, u8 *results, u32 max)
         else if (id == 0 || id == SET_UNPAIR) r = l ? SET_BAD_LENGTH : SET_OK;
         else r = check(f, in + o + 3, l);
         if (r == SET_OK && t < SLOTS && (id == ID_RADIO || id == ID_RADIO_TYPE)) r = check_radio(t, in, len);
-        if (r == SET_OK && staged + 3u + l > STAGE_MAX) r = SET_FULL;
-        if (r == SET_OK) {
+        if (r == SET_OK && is_macros(t)) {
+            /* Staged as the record commit writes: {t, id, its length, record}. */
+            u8 n = (u8)(l ? 6u + l : 4u);
+
+            if (staged + 3u + n > STAGE_MAX) {
+                r = SET_FULL;
+            } else {
+                u8 *p = stage + staged;
+
+                p[0] = t; p[1] = id; p[2] = n;
+                p[3] = (u8)MAGIC; p[4] = (u8)(MAGIC >> 8); p[5] = RECORD_VERSION; p[6] = n;
+                if (l) {
+                    p[7] = MACROS_FIELD->id;
+                    p[8] = l;
+                    memcpy(p + 9, in + o + 3, l);
+                }
+                staged = (u16)(staged + 3u + n);
+                staged_items++;
+            }
+        } else if (r == SET_OK && staged + 3u + l > STAGE_MAX) {
+            r = SET_FULL;
+        } else if (r == SET_OK) {
             memcpy(stage + staged, in + o, 3u + l);
             staged = (u16)(staged + 3u + l);
             staged_items++;
@@ -1140,7 +1261,9 @@ void set_apply(void)
             util_log("settings: remap %u no longer held", t - TARGET_REMAP);
             continue;
         }
-        if (id == SET_UNPAIR) {
+        if (is_macros(t)) {
+            plat_store_write(key_of(t, 0), stage + o + 3, l);   /* never in RAM: written now */
+        } else if (id == SET_UNPAIR) {
             renew_identity(t);
         } else if (id == 0) {
             reset_keeping_pairing(t);
@@ -1209,13 +1332,15 @@ static u32 put_string(u8 *out, u32 o, u32 max, const char *s)
  * slot for slot fields).  0: past the last. */
 u32 set_describe(u32 n, u8 *out, u32 max)
 {
-    u32 kinds[4] = { COUNT(slot_fields), PALETTE_FIELDS, COUNT(cal_fields), COUNT(remap_fields) };
-    static const struct set_field *const tables[4] = { slot_fields, PALETTE_TABLE, cal_fields, remap_fields };
+    u32 kinds[5] = { COUNT(slot_fields), PALETTE_FIELDS, COUNT(cal_fields), COUNT(remap_fields),
+                     REMAP_MACRO_BYTES ? COUNT(macro_fields) : 0 };
+    static const struct set_field *const tables[5] = { slot_fields, PALETTE_TABLE, cal_fields, remap_fields,
+                                                       macro_fields };
     const struct set_field *f;
     u32 kind = 0, o, i, defs;
 
-    while (kind < 4 && n >= kinds[kind]) n -= kinds[kind++];
-    if (kind == 4 || max < 8) return 0;
+    while (kind < 5 && n >= kinds[kind]) n -= kinds[kind++];
+    if (kind == 5 || max < 8) return 0;
     f = &tables[kind][n];
     out[0] = VERSION;
     out[1] = (u8)kind;
@@ -1253,7 +1378,7 @@ static u32 read_values(u8 t, u8 *out, u32 max, int defaults)
     for (i = 0; i < n; i++) {
         if (o + 3u + f[i].size > max) return 0;
         out[o] = f[i].id;
-        out[o + 1] = defaults ? 0 : (set_bits[t] >> i) & 1;
+        out[o + 1] = defaults || !stored(t) || is_macros(t) ? 0 : (BITS(t) >> i) & 1;
         out[o + 2] = f[i].size;
         if (defaults) default_value(t, &f[i], out + o + 3);
 #if REMAP_BASE_STORED
@@ -1297,6 +1422,13 @@ int plat_store_read(u16 key, void *buf, u16 len)
     memcpy(buf, store[key], len);
     return len;
 }
+int plat_store_read_at(u16 key, u16 offset, void *buf, u16 len)
+{
+    if (offset >= store_len[key]) return 0;
+    if (len > store_len[key] - offset) len = (u16)(store_len[key] - offset);
+    memcpy(buf, store[key] + offset, len);
+    return len;
+}
 int plat_store_write(u16 key, const void *buf, u16 len)
 {
     if (len > RECORD_MAX) len = RECORD_MAX;
@@ -1332,7 +1464,7 @@ void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 
 static void decode(u8 t, const u8 *in, u32 len)
 {
-    set_bits[t] |= unpack(t, in, len, values_of(t), ~0u);
+    BITS(t) |= unpack(t, in, len, values_of(t), ~0u);
 }
 
 static u32 write1(u8 t, u8 id, u8 len, const void *v)
@@ -1371,7 +1503,7 @@ static void old_transports(void)
     set_init();
     for (t = 0; t < COUNT(old) && t < SLOTS_STORED; t++) {
         CHECK(set_slot(t)->radio == want[t][0] && set_slot(t)->usb_type == want[t][1]);
-        CHECK(set_bits[t] & bit_of(t, ID_RADIO) && set_bits[t] & bit_of(t, ID_USB_TYPE));
+        CHECK(BITS(t) & bit_of(t, ID_RADIO) && BITS(t) & bit_of(t, ID_USB_TYPE));
     }
     CHECK(set_slot(5)->radio_type == PROFILE_DS4 || SLOTS_STORED <= 5);
     /* A type changed, the transport left at the board's default: the cable
@@ -1462,6 +1594,84 @@ static void held_remaps(void)
 }
 #else
 static void held_remaps(void) {}
+#endif
+
+#if REMAP_BASE_STORED && REMAP_MACRO_BYTES
+/* Macros: written at commit, read and played from flash; a slot with none
+ * set plays the base's; refused in ephemeral mode. */
+static void saved_macros(void)
+{
+    u8 v[REMAP_MACRO_BYTES], d[512], rule[sizeof(struct remap_rule) * REMAP_RULES];
+    u16 key, from, to;
+    u32 n, writes;
+    struct remap_rule *r = (struct remap_rule *)rule;
+    static const u8 two[] = { 7, 2, 'h', 'i', 0, MACRO_PRESS | 0, 10, 0,      /* "hi": A down, 40 ms, up */
+                              5, 0, 0, MACRO_PRESS | 16, 25, 16 };          /* (no name): up */
+
+    ephemeral = 0;
+    memset(v, 0, sizeof(v));
+    memcpy(v, two, sizeof(two));
+    CHECK(!set_macro(0, 1, &key, &from, &to));
+    CHECK(write1(TARGET_BASE_MACROS, 1, sizeof(v) - 1, v) == SET_BAD_LENGTH);
+    writes = (u32)store_writes;
+    CHECK(write1(TARGET_BASE_MACROS, 1, sizeof(v), v) == SET_OK);
+    CHECK(store_writes == (int)writes);                          /* staged, not written */
+    set_apply();
+    CHECK(store_writes == (int)writes + 1);                      /* at commit */
+    CHECK(set_macro(0, 1, &key, &from, &to) && key == KEY_MACROS + SLOTS && from == 6 + 4 && to == 6 + 8);
+    CHECK(set_macro(REMAP_BASE, 2, &key, &from, &to) && from == 6 + 8 + 2 && to == 6 + 8 + 6);
+    CHECK(!set_macro(0, 3, &key, &from, &to));
+    n = set_read(TARGET_BASE_MACROS, d, sizeof(d));
+    CHECK(n == 6 + sizeof(v) && d[3] == 1 && d[4] == 1 && !memcmp(d + 6, v, sizeof(v)));
+    n = set_read(TARGET_MACROS + 1, d, sizeof(d));               /* unset: shows the base's */
+    CHECK(n == 6 + sizeof(v) && d[4] == 0 && !memcmp(d + 6, v, sizeof(v)));
+    /* A slot's own: the base's no longer played there. */
+    v[1] = 0; v[0] = 5; memmove(v + 2, v + 4, 4); memset(v + 6, 0, sizeof(two) - 6);
+    CHECK(write1(TARGET_MACROS + 1, 1, sizeof(v), v) == SET_OK);
+    set_apply();
+    CHECK(set_macro(1, 1, &key, &from, &to) && key == KEY_MACROS + 1 && from == 6 + 2 && to == 6 + 6);
+    CHECK(!set_macro(1, 2, &key, &from, &to));
+    /* Bad entries: a key no rule sends, a name too long, an odd step, too long. */
+    v[5] = 15;
+    CHECK(write1(TARGET_MACROS + 1, 1, sizeof(v), v) == SET_RANGE);
+    v[5] = MACRO_WAIT_ONLY;
+    CHECK(write1(TARGET_MACROS + 1, 1, sizeof(v), v) == SET_OK);
+    set_drop();
+    v[1] = MACRO_NAME + 1;
+    CHECK(write1(TARGET_MACROS + 1, 1, sizeof(v), v) == SET_RANGE);
+    v[1] = 0; v[0] = 4;
+    CHECK(write1(TARGET_MACROS + 1, 1, sizeof(v), v) == SET_RANGE);
+    v[0] = sizeof(v);
+    CHECK(write1(TARGET_MACROS + 1, 1, sizeof(v), v) == SET_RANGE);
+    /* Rules play macros 1-8 by number, outputs empty. */
+    memset(rule, 0, sizeof(rule));
+    r->trigger = RT_PRESSED; r->input = IN_L4; r->effect = RE_PLAY_MACRO; r->rate = 1;
+    CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rule), rule) == SET_OK);
+    set_drop();
+    r->rate = REMAP_MACROS + 1;
+    CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rule), rule) == SET_RANGE);
+    r->rate = 2; r->outputs[0] = 1;
+    CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rule), rule) == SET_RANGE);
+    r->outputs[0] = 0; r->effect = RE_MACRO;                    /* level, with an event trigger */
+    CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rule), rule) == SET_RANGE);
+    r->trigger = RT_HELD;
+    CHECK(write1(TARGET_REMAP + 1, 3, sizeof(rule), rule) == SET_OK);
+    set_drop();
+    /* Ephemeral: refused; reset: the base's again, then none. */
+    set_ephemeral();
+    CHECK(write1(TARGET_MACROS + 1, 0, 0, NULL) == SET_NOT_HELD);
+    ephemeral = 0;
+    CHECK(write1(TARGET_MACROS + 1, 0, 0, NULL) == SET_OK);
+    set_apply();
+    CHECK(set_macro(1, 2, &key, &from, &to) && key == KEY_MACROS + SLOTS);
+    CHECK(write1(TARGET_BASE_MACROS, 1, 0, NULL) == SET_OK);
+    set_apply();
+    CHECK(!set_macro(1, 1, &key, &from, &to));
+    n = set_read(TARGET_BASE_MACROS, d, sizeof(d));
+    CHECK(n == 6 + sizeof(v) && d[4] == 0 && !d[6]);
+}
+#else
+static void saved_macros(void) {}
 #endif
 
 #if SLOTS_STORED == SLOTS && REMAPS_STORED == SLOTS
@@ -1924,8 +2134,9 @@ static int full_storage(void)
     CHECK(set_describe(COUNT(slot_fields) + PALETTE_FIELDS, buf, sizeof(buf)) && buf[1] == 2);
     t = COUNT(slot_fields) + PALETTE_FIELDS + COUNT(cal_fields);
     CHECK(set_describe(t, buf, sizeof(buf)) && buf[1] == 3 && buf[3] == T_TEXT);
-    CHECK(set_describe(t + COUNT(remap_fields), buf, sizeof(buf)) == 0);
-    for (t = 0; t < COUNT(slot_fields) + PALETTE_FIELDS + COUNT(cal_fields) + COUNT(remap_fields); t++)
+    CHECK(set_describe(t + COUNT(remap_fields), buf, sizeof(buf)) && buf[1] == 4 && buf[4] == REMAP_MACRO_BYTES);
+    CHECK(set_describe(t + COUNT(remap_fields) + COUNT(macro_fields), buf, sizeof(buf)) == 0);
+    for (t = 0; t < COUNT(slot_fields) + PALETTE_FIELDS + COUNT(cal_fields) + COUNT(remap_fields) + COUNT(macro_fields); t++)
         CHECK(set_describe(t, buf, 512) > 0);
     CHECK(set_read(3, buf, sizeof(buf)) > 3 && buf[2] == COUNT(slot_fields));
     CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6u + cal_fields[0].size);
@@ -2021,6 +2232,7 @@ static int full_storage(void)
     memset(&bond, 0x22, sizeof(bond));
     CHECK(write1(6, ID_BOND, sizeof(bond) - 1, &bond) == SET_BAD_LENGTH);
     held_remaps();
+    saved_macros();
     return TEST_DONE("settings");
 }
 #else
@@ -2093,6 +2305,7 @@ static int reduced_storage(void)
     CHECK(set_remap(REMAP_BASE)->rumble == 4);
 #endif
     held_remaps();
+    saved_macros();
     return TEST_DONE("settings");
 }
 #endif
