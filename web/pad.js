@@ -36,7 +36,7 @@ export const REMAP_TARGET = 10, BASE_TARGET = 18;
 export const KINDS = ["slot", "palette", "calibration", "remap"];
 export const T = { ENUM: 0, NUMBER: 1, RGB: 2, BYTES: 3, TEXT: 4, ENTRY: 5, LIST: 6 };
 export const RESULTS = ["ok", "unknown setting", "bad length", "out of range", "full"];
-export const PALETTE_TARGET = 8, PALETTE = 16;
+export const PALETTE_TARGET = 8, CALIBRATION_TARGET = 9, PALETTE = 16;
 
 // Over USB a command asks for its answer's size (the pad zero-pads to
 // it): padtool's sizes; the rest have none.
@@ -60,12 +60,12 @@ export const kindOf = (t) => (t < 8 ? 0 : t >= REMAP_TARGET ? 3 : t - 7);
 
 // The targets a table describes: the palette and remap slots only where it
 // has their fields (one-colour lights have no palette), the base remap
-// before the remap slots.
+// before the remap slots; palette and calibration last (rarely touched).
 export function targetsFor(table) {
   const has = (kind) => table.some((f) => f.kind === kind);
-  const first = [...Array(REMAP_TARGET).keys()].filter((t) => kindOf(t) !== 1 || has(1));
-  if (!has(3)) return first;
-  return [...first, BASE_TARGET, ...Array.from({ length: BASE_TARGET - REMAP_TARGET }, (_, i) => REMAP_TARGET + i)];
+  const slots = [...Array(PALETTE_TARGET).keys()];
+  const remaps = has(3) ? [BASE_TARGET, ...Array.from({ length: BASE_TARGET - REMAP_TARGET }, (_, i) => REMAP_TARGET + i)] : [];
+  return [...slots, ...remaps, ...(has(1) ? [PALETTE_TARGET] : []), CALIBRATION_TARGET];
 }
 
 const u16 = (d, o) => d[o] | (d[o + 1] << 8);
