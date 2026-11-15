@@ -119,6 +119,9 @@ static struct {
 #ifdef PATH_STATS
     u32 pass_us;                 /* this pass's wake */
 #endif
+#if TOOL_PRESS
+    u32 press, press_until;      /* the tool's PRESS: keys held until then */
+#endif
 } c;
 
 static void stats_reset(u32 now)
@@ -471,6 +474,12 @@ static void handle(struct ctl_request r, u32 now)
         quick_clear();
         if (session()) stop(now);
         break;
+#if TOOL_PRESS
+    case REQ_PRESS:
+        c.press = r.ms ? r.buttons & PAD_DIGITAL : 0;
+        c.press_until = now + r.ms;
+        break;
+#endif
     case REQ_LED_DEMO:
         if (r.slot != c.led_demo) util_log("led demo %d", r.slot == SLOT_NONE ? -1 : (int)r.slot);
 #if LEDS_MONO
@@ -1170,6 +1179,10 @@ static void remap(u32 now)
 {
     u32 edits = set_edits(), out;
 
+#if TOOL_PRESS
+    if (c.press && (s32)(now - c.press_until) >= 0) c.press = 0;
+    if (c.kind == CTL_CONNECTED) c.pad.buttons |= c.press;
+#endif
     c.ux_buttons = c.pad.buttons;
     c.turbo_max = 0;
     if (c.kind != CTL_CONNECTED || c.calibrating || ux_quick(NULL)) {
@@ -1440,6 +1453,9 @@ void ctl_main(void)
             st.stats = &c.stats;
             st.input = &c.input;
             st.raw = &c.raw;
+#if TOOL_PRESS
+            st.output = &c.pad;
+#endif
             handle(usb_poll(&st), now);
             STEP(STEP_USB);
             PULL();
@@ -1469,6 +1485,9 @@ void ctl_main(void)
         if (c.kicking[1]) c.house_at = earliest(c.house_at, c.kick_until[1]);
         deadline = earliest(c.house_at, earliest(state_deadline(), earliest(ux_deadline(), c.imu_next)));
         deadline = earliest(deadline, earliest(earliest(remap_deadline(), macro_deadline()), quick_deadline()));
+#if TOOL_PRESS
+        if (c.press) deadline = earliest(deadline, c.press_until);
+#endif
         if (c.calibrating) deadline = earliest(deadline, now + CAL_SAMPLE_MS);
         c.stats.passes++;
         util_stat_add(&c.stats.pass, plat_us() - start);

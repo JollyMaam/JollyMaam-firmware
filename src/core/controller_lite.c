@@ -79,6 +79,9 @@ static struct {
     u32 probe_at_us;             /* the latency probe's next edge, 0: none */
 #endif
     struct in_trigger triggers[2];
+#if TOOL_PRESS
+    u32 press, press_until;      /* the tool's PRESS: keys held until then */
+#endif
 } c;
 
 static void start(void);
@@ -120,6 +123,10 @@ static void remap(u32 now)
 {
     u32 edits = set_edits(), out;
 
+#if TOOL_PRESS
+    if (c.press && (s32)(now - c.press_until) >= 0) c.press = 0;
+    if (c.linked && !c.stopping) c.pad.buttons |= c.press;
+#endif
     c.turbo_max = 0;
     if (!c.linked || c.stopping || c.calibrating || ux_quick(NULL)) {
         if (c.remap_live) remap_reset();
@@ -640,6 +647,12 @@ static void request(const struct ctl_request *r)
         c.led_demo = r->slot;
         c.led_demo_ms = plat_ms();
         break;
+#if TOOL_PRESS
+    case REQ_PRESS:
+        c.press = r->ms ? r->buttons & PAD_DIGITAL : 0;
+        c.press_until = plat_ms() + r->ms;
+        break;
+#endif
     case REQ_RUMBLE:
         c.feedback = 0;
         plat_motors(r->motor[0], r->motor[1]);
@@ -722,6 +735,9 @@ void ctl_main(void)
 
     c.status.input = &c.input;
     c.status.raw = &c.raw;
+#if TOOL_PRESS
+    c.status.output = &c.pad;
+#endif
     memset(&c.shown, 0xff, sizeof(c.shown));   /* the first frame goes out */
     c.led_demo = SLOT_NONE;
     set_init();
@@ -734,6 +750,9 @@ void ctl_main(void)
         if (power && (!next || (s32)(power - next) < 0)) next = power;
         if (c.rumble_until && (!next || (s32)(c.rumble_until - next) < 0)) next = c.rumble_until;
         next = earliest(next, earliest(earliest(remap_deadline(), macro_deadline()), quick_deadline()));
+#if TOOL_PRESS
+        if (c.press) next = earliest(next, c.press_until);
+#endif
         if (c.calibrating) next = plat_ms() + CAL_SAMPLE_MS;
         /* a report is built when the link wants it (bt_input_due_us: just
          * before the connection event it is for) */

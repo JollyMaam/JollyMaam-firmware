@@ -28,6 +28,8 @@
     padtool led-demo [list | N] [--seconds S]   the pad shows its LED animations
                                   in turn, from N: Enter for the next (or
                                   every S seconds); list: what there is
+    padtool press KEY[+KEY...] [MS]      while connected, hold the keys MS (default 100) after
+                                         the Home gestures, before the remap (testing; none lets go)
     padtool rumble LEFT [RIGHT] [--seconds S]   run the motors at LEFT and RIGHT
                                   percent of full power (default RIGHT = LEFT) for
                                   S seconds (1; at most 10); 0 stops
@@ -1166,6 +1168,15 @@ def led_demo(path, names, first, seconds):
 
 
 CMD_RUMBLE = 0x1a
+CMD_PRESS = 0x1e
+
+
+def press(path, keys, ms):
+    """Hold keys (PAD_* names) for ms while connected; [] or 0 ms lets go."""
+    mask = 0
+    for k in keys:
+        mask |= 1 << padremap.key_bit(k)
+    scsi(path, [OP, CMD_PRESS] + list(struct.pack("<IH", mask, min(int(ms), 0xFFFF))), 0)
 RUMBLE_MAX_MS = 10000
 
 
@@ -1297,13 +1308,16 @@ def read_input(path):
     return {"buttons": buttons, "keys": [k for i, k in enumerate(padremap.KEYS) if k and buttons >> i & 1],
             "left": (lx, ly), "right": (rx, ry), "l2": l2, "r2": r2, "sticks_read": bool(flags & 1),
             "raw_sticks": struct.unpack_from("<4H", d, 20), "raw_triggers": struct.unpack_from("<2H", d, 28),
-            "ms": struct.unpack_from("<I", d, 32)[0]}
+            "ms": struct.unpack_from("<I", d, 32)[0],
+            "output": struct.unpack_from("<I", d, 36)[0] if flags & 2 and len(d) >= 40 else None}
 
 
 def input_line(i):
     return (f"L {i['left'][0]:6} {i['left'][1]:6}  R {i['right'][0]:6} {i['right'][1]:6}  "
             f"L2 {i['l2']:5}  R2 {i['r2']:5}  raw {' '.join(f'{v:4}' for v in i['raw_sticks'] + i['raw_triggers'])}  "
-            f"{' '.join(i['keys']) or '-'}")
+            f"{' '.join(i['keys']) or '-'}" +
+            ("" if i["output"] is None else
+             f"  -> {' '.join(k for b, k in enumerate(padremap.KEYS) if k and i['output'] >> b & 1) or '-'}"))
 
 
 def show_input(path, follow):
@@ -2048,7 +2062,7 @@ BLE_NOT = {"find", "tool", "tool-only", "hub", "latency", "peek", "keep", "boot"
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "layout", "reboot", "oemloader", "boot", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace", "wake-learn",
+    p.add_argument("command", choices=["tool-only", "hub", "find", "identify", "status", "log", "stats", "calibrate", "led-demo", "press", "rumble", "rumble-test", "rumble-sticks", "input", "layout", "reboot", "oemloader", "boot", "update", "relink", "connect", "disconnect", "config", "pair", "unpair", "profile", "peek", "trace", "wake-learn",
                                        "fields", "get", "set", "reset", "backup-settings",
                                        "restore-settings", "factory-reset", "ephemeral", "keep", "tool", "latency"])
     p.add_argument("args", nargs="*")
@@ -2110,7 +2124,7 @@ def main():
             p.error(f"{a.command} does not work over Bluetooth{' (a dongle has no config mode)' if BOARD != 'pad' else ''}")
         DEVICE = "ble:" + a.ble
     if BOARD == "dongle" and a.command in {
-        "stats", "latency", "calibrate", "led-demo", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "disconnect", "config", "fields", "get", "set", "reset",
+        "stats", "latency", "calibrate", "led-demo", "press", "rumble", "rumble-test", "rumble-sticks", "input", "relink", "connect", "disconnect", "config", "fields", "get", "set", "reset",
         "backup-settings", "restore-settings", "factory-reset", "keep",
     }:
         p.error(f"{a.command} is not supported by dongle firmware")
@@ -2219,6 +2233,14 @@ def main():
             else:
                 left, right, kick = rumble_step_settings(path, a.step)
             rumble_sticks(path, (a.left or left, a.right or right), kick if a.kick is None else a.kick)
+    elif a.command == "press":
+        if not a.args or len(a.args) > 2 or (len(a.args) == 2 and not a.args[1].isdigit()):
+            p.error("press KEY[+KEY...] [MS], or press none")
+        keys = [] if a.args[0] == "none" else a.args[0].split("+")
+        try:
+            press(need_device(), keys, int(a.args[1]) if len(a.args) > 1 else 100)
+        except padremap.RemapError as error:
+            p.error(f"press: {error}")
     elif a.command in ("rumble", "rumble-test"):
         path = need_device()
         if a.command == "rumble-test":

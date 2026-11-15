@@ -34,11 +34,13 @@
  *   `0x02` LOG            CDB bytes 2–5: from sequence number; in: u32 first
  *                         sequence returned, u32 length, text
  *   `0x27` DEFAULTS       pad only: same arguments and format as READ, no state changes
- *   `0x04` INPUT          pad only: in (36): u8 version (1), flags
- *                         (bit 0: sticks read), u16 –, u32 buttons (PAD_*), s16
+ *   `0x04` INPUT          pad only: in (36, 40): u8 version (1), flags
+ *                         (bit 0: sticks read, bit 1: output), u16 –, u32 buttons (PAD_*), s16
  *                         lx ly rx ry and u16 l2 r2 calibrated, before Home
  *                         gestures and the remap; u16 raw sticks [4] and
- *                         triggers [2] as read, u32 uptime ms
+ *                         triggers [2] as read, u32 uptime ms; with TOOL_PRESS
+ *                         u32 the buttons going to the host (after the remap
+ *                         and macros)
  *   `0x06` LAYOUT         pad only: CDB bytes 2–5: the first entry; in: u8
  *                         version (1), u8 entry size (12), u8 the board's
  *                         count, u8 entries here, then as many whole entries
@@ -63,6 +65,10 @@
  *                         0 stops), over whatever the host asks for
  *   `0x1b` DISCONNECT     pad only: end the current session, keeping its bond
  *   `0x1d` CONFIG         pad only: config mode, as Home+M held does (profile_config.c)
+ *   `0x1e` PRESS          pad only (TOOL_PRESS): CDB bytes 2–5: PAD_* keys, 6–7: ms;
+ *                         while connected the keys are held that long, after
+ *                         the Home gestures and before the remap (a new PRESS
+ *                         replaces it; 0 ms lets go)
  *   `0x30` TARGET         dongle only: CDB bytes 2–7: Bluetooth address in
  *                         written order (AA:BB:CC:DD:EE:FF); page that device
  *   `0x31` TOOL_ONLY      dongle only: CDB byte 2: 0 off, 1 on (until power
@@ -290,6 +296,13 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         util_put16(data + 30, raw->trigger[1]);
         util_put32(data + 32, status->uptime_ms);
         n = 36;
+#if TOOL_PRESS
+        if (status->output && max >= 40) {
+            data[1] |= 2;
+            util_put32(data + 36, status->output->buttons);
+            n = 40;
+        }
+#endif
         break;
     }
     case JM_CMD_CLOCK:              /* the microsecond clock, for mapping it onto the PC's */
@@ -369,6 +382,13 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         pending.kind = REQ_CONNECT;
         pending.slot = cdb[2];
         break;
+#if TOOL_PRESS && !defined(BOARD_DONGLE)
+    case JM_CMD_PRESS:
+        pending.kind = REQ_PRESS;
+        pending.buttons = util_get32(cdb + 2);
+        pending.ms = (u16)(cdb[6] | cdb[7] << 8);
+        break;
+#endif
     case JM_CMD_DISCONNECT:
 #ifndef BOARD_DONGLE
         pending.kind = REQ_DISCONNECT;
@@ -605,6 +625,15 @@ int main(void)
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 11 && data[0] == 7 && data[4] == 3);
     r = usb_poll(&st);
     CHECK(r.kind == REQ_NONE);
+#if TOOL_PRESS && !defined(BOARD_DONGLE)
+    cdb[1] = JM_CMD_PRESS;
+    util_put32(cdb + 2, PAD_L4 | PAD_SOUTH);
+    cdb[6] = 0x2c; cdb[7] = 0x01;
+    CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
+    r = usb_poll(&st);
+    CHECK(r.kind == REQ_PRESS && r.buttons == (PAD_L4 | PAD_SOUTH) && r.ms == 300);
+    memset(cdb + 2, 0, 6);
+#endif
     cdb[1] = JM_CMD_DISCONNECT;
     CHECK(usb_command(cdb, data, sizeof(data), 0) == 0);
     r = usb_poll(&st);

@@ -238,7 +238,15 @@ enum req_kind {
     REQ_QUICK_TURBO,         /* a key's press: its next turbo step */
     REQ_QUICK_RECORD,        /* M tapped, held with a key: record a macro for the key */
     REQ_QUICK_RECORD_LOOP,   /* M tapped twice, held with a key: record a looping macro */
+    REQ_PRESS,               /* tool PRESS: .buttons held for .ms while connected (TOOL_PRESS) */
 };
+
+/* The tool's PRESS (usb.c): keys held as if pressed, after the Home
+ * gestures (no shortcut, no wake) and before the remap, for testing the
+ * remap and macros over USB.  A board short of RAM leaves it out. */
+#ifndef TOOL_PRESS
+#define TOOL_PRESS 1
+#endif
 
 struct ctl_request {
     u8 kind;
@@ -246,7 +254,10 @@ struct ctl_request {
     u8 generate_new_address;
     u8 quiet;                /* a restart the pad made itself: it never wakes a host by USB */
     u8 motor[2];             /* REQ_RUMBLE: left, right */
-    u16 ms;                  /* REQ_RUMBLE */
+    u16 ms;                  /* REQ_RUMBLE, REQ_PRESS */
+#if TOOL_PRESS
+    u32 buttons;             /* REQ_PRESS: PAD_* digital keys; 0 lets go */
+#endif
 };
 
 #define RUMBLE_TEST_MAX_MS 10000
@@ -1127,6 +1138,9 @@ struct usb_status {
     const struct ctl_stats *stats;
     const struct pad *input;     /* the controls, calibrated, before Home gestures and the remap; NULL: none */
     const struct in_raw *raw;    /* as read */
+#if TOOL_PRESS
+    const struct pad *output;    /* what goes to the host: after the remap and macros */
+#endif
 };
 
 struct ctl_request usb_poll(const struct usb_status *status);

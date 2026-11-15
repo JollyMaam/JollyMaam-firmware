@@ -55,7 +55,7 @@ static void begin(u8 remap, u8 n, u32 now)
     p.held = p.uses = 0;
     if (!set_macro(remap, n & ~LOOPING, &key, &from, &to) || to > 0xff) return;
     for (o = from; o < to; o = (u16)(o + k)) {   /* the keys it uses */
-        k = to - o < sizeof(b) ? to - o : sizeof(b);
+        k = (u32)(to - o) < sizeof(b) ? (u32)(to - o) : sizeof(b);
         if (plat_store_read_at(key, o, b, (u16)k) != (int)k) return;
         for (i = 1; i < k; i += 2)
             if (b[i] != MACRO_WAIT_ONLY) p.uses |= 1u << (b[i] & ~MACRO_PRESS & 0x1f);
