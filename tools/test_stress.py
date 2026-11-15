@@ -13,16 +13,20 @@ import stress  # noqa: E402
 class FakeHost:
     """stress.Host's state, filled by hand."""
 
-    def __init__(self, times, lost=()):
+    def __init__(self, times, lost=(), attached=()):
         self.times, self.lost, self.lock = list(times), list(lost), threading.Lock()
+        self.attached = [(x, "hidraw0") for x in attached]
 
     def since(self, t):
         return [x for x in self.times if x >= t]
 
+    def attached_after(self, t):
+        return [x for x, _ in self.attached if x >= t]
+
 
 class FakeTarget:
-    def __init__(self, host):
-        self.host = host
+    def __init__(self, host, link="dongle"):
+        self.host, self.link = host, link
 
 
 class Plan(unittest.TestCase):
@@ -79,9 +83,9 @@ class Outage(unittest.TestCase):
     def tearDown(self):
         stress.now = self.real_now
 
-    def run_outage(self, times, lost, at):
+    def run_outage(self, times, lost, at, attached=(), link="dongle"):
         stress.now = lambda: at
-        return stress.outage(FakeTarget(FakeHost(times, lost)), 10.0, 1)
+        return stress.outage(FakeTarget(FakeHost(times, lost, attached), link), 10.0, 1)
 
     def test_gap(self):
         times = [9.9 + i * 0.01 for i in range(20)] + [11.6 + i * 0.01 for i in range(20)]
@@ -94,6 +98,13 @@ class Outage(unittest.TestCase):
         o, dropped = self.run_outage(times, [10.4], 12.0)
         self.assertTrue(dropped)
         self.assertAlmostEqual(o, 11.0 - 10.29, places=3)
+
+    def test_bluetooth_node_back(self):
+        # An idle pad over Bluetooth: no report after the drop, only the node back.
+        times = [9.9 + i * 0.01 for i in range(40)]
+        o, dropped = self.run_outage(times, [10.4], 12.0, attached=[9.0, 11.5], link="bluetooth")
+        self.assertTrue(dropped)
+        self.assertAlmostEqual(o, 11.5 - 10.29, places=3)
 
     def test_no_drop(self):
         clock = itertools.chain([10.0], itertools.repeat(16.0))     # past the 5 s wait for a drop

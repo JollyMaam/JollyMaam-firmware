@@ -62,7 +62,9 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   hub, `tools/padhub.md`), `sdlpad.c` (what SDL sees), `linkbench.py`,
   `stress.py` (unattended stress of pads' links to this PC: connect cycles,
   relinks, host drops, reboots, latency, soak; a plan such as
-  `stress-all.json`; report in `build/stress/`),
+  `stress-all.json`, or before a release `release-latency.json` and
+  `release-connect.json`, `--only` for some of their targets; report in
+  `build/stress/`),
   `buildcommits.sh` (build a range of commits, for bisecting),
   `stackdepth.py` (the 8BitDo's deepest stack use, from its disassembly),
   `tools/padtool/padtool_dist.py` (`make padtool-dist`, make/padtool.mk: the Windows and Linux zip of padtool, bleak,
@@ -249,6 +251,22 @@ wrong assumption), add it here in a line or two.
   set-up in turn changes registers BLE's never writes again (the RF
   interrupt mask, packet format, state machine, the radio's RX DMA): save
   and restore them, or BLE advertises but no host can connect.
+- Jieli USB device (SDK `usb_control_transfer`, prebuilt): on EP0 SentStall
+  it returns without looking at RxPktRdy, so a SETUP that arrived with the
+  stall's interrupt is never served and the host times out (5 s on Linux).
+  Linux follows three stalled device-qualifier requests at once with the
+  next request: one dongle personality change in seven took 5-11 s.
+  `usb_isr_ep0` (platform_jieli_usb.c) serves such a SETUP.
+- The C2 pad's clock (`plat_us`) runs ~0.8 % fast and wanders by
+  milliseconds over a minute: padtool latency maps it between its
+  once-a-second syncs.  A single straight-line fit put up to ±15 ms into
+  "air" times and made long runs look like 50-90 ms latency and 2 % loss.
+- Dongle link (BR23 both ends): roughly one link in 30 got none of the
+  dongle's LL control PDUs through (PHY, data length, encryption), while
+  ATT data flowed; the pad's link layer logged none received.  Not seen
+  with the dongle's link-layer trace on (timing); asking for PHY and data
+  length only after the MTU exchange did not clearly help (2 in 120).  The
+  pad ends a link not encrypted after 2 s (link_watch).
 - padtool latency's clock mapping assumes symmetric USB round trips: a
   command answered only at the end of a control-loop pass skews it by up to
   half the round trip (the 8BitDo answers CLOCK at once since).

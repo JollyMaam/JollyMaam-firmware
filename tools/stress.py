@@ -305,19 +305,27 @@ class Host:
         with self.lock:
             return [x for x in self.times if x >= t]
 
-    def first_after(self, t, timeout):
-        """Time of the first report after T, waiting up to TIMEOUT s from now; None."""
+    def first_after(self, t, timeout, attach=False):
+        """Time of the first report after T, waiting up to TIMEOUT s from now; None.
+        ATTACH: or of the node appearing (see attached_after)."""
         end = now() + timeout
         while now() < end:
             with self.lock:
-                for x in reversed(self.times):
-                    if x < t:
-                        break
                 after = [x for x in self.times[-200:] if x >= t]
+            if attach:
+                after = sorted(after + self.attached_after(t))
             if after:
                 return after[0]
             time.sleep(0.01)
         return None
+
+    def attached_after(self, t):
+        """Times its node appeared after T.  Over Bluetooth a profile that
+        sends only on change sends its first report as the host's HID link
+        opens, before this reader can open the node BlueZ makes then, and an
+        idle pad sends no other: the node's appearance is the connection."""
+        with self.lock:
+            return [x for x, _ in self.attached if x >= t]
 
     def quiet(self, t, quiet_s, timeout):
         """Wait until its node is gone, or no report came for QUIET_S s; the time or None."""
@@ -525,7 +533,7 @@ def connect(t, timeout):
     rc, out = padtool(*t.pad.args, "connect", t.slot)
     if rc and t.link != "usb":       # a USB session leaves USB before padtool hears back
         return None, out
-    first = t.host.first_after(t0, timeout)
+    first = t.host.first_after(t0, timeout, attach=t.link == "bluetooth")
     return (first - t0 if first else None), out
 
 
@@ -616,6 +624,8 @@ def outage(t, t0, timeout):
         if dropped is not None:
             last = max([x for x in before if x <= dropped] or [t0])
             after = [x for x in times if x > dropped + 0.001]
+            if t.link == "bluetooth":
+                after = sorted(after + [x for x in t.host.attached_after(dropped + 0.001)])
             if after:
                 return after[0] - last, True
         time.sleep(0.05)
@@ -746,9 +756,10 @@ def run_latency(t, p, throughput):
 def test_latency(t, p, rec, log):
     r, out = run_latency(t, p, False)
     total = r.get("total_ms") or {}
-    missed = r["expected"] - r["seen"]
+    merged = r.get("missed_short", 0)  # pulses under ~2 link events: newest wins, by design
+    missed = r["expected"] - r["seen"] - merged
     ok = bool(total) and missed == 0 and (p["max_p99"] is None or total["p99"] <= p["max_p99"])
-    rec(ok=ok, total_ms=total, pad_ms=r.get("pad_ms"), air_ms=r.get("air_ms"), missed=missed,
+    rec(ok=ok, total_ms=total, pad_ms=r.get("pad_ms"), air_ms=r.get("air_ms"), missed=missed, merged=merged,
         expected=r["expected"], host_rate=r["host_rate"], clock_fit_ms=r["clock_fit_ms"])
 
 
@@ -804,8 +815,10 @@ def test_soak(t, p, rec, log):
         rec(event="window", at_s=round(w0 - t0, 1), rate=round(len(times) / max(0.1, now() - w0), 1),
             max_gap_ms=round(max(g), 1) if g else None,
             stalls=sum(1 for x in g if x > p["stall"]))
-    times = t.host.since(t0)
-    span = now() - t0
+    # The probe's first edge comes a moment after it starts: no gap before it.
+    start = t0 + 1 if probe else t0
+    times = t.host.since(start)
+    span = now() - start
     lat = {}
     if probe:
         try:
@@ -817,13 +830,15 @@ def test_soak(t, p, rec, log):
             with open(tmp) as f:
                 r = json.load(f)
             os.remove(tmp)
-            lat = {"total_ms": r.get("total_ms"), "missed": r["expected"] - r["seen"], "expected": r["expected"]}
+            merged = r.get("missed_short", 0)
+            lat = {"total_ms": r.get("total_ms"), "missed": r["expected"] - r["seen"] - merged,
+                   "merged": merged, "expected": r["expected"]}
         else:
             lat = {"probe_error": out.strip().splitlines()[-1] if out.strip() else "no result"}
     g = gaps_ms(times)
     stalls = [round(x) for x in g if x > p["stall"]]
     # Undriven, a profile that sends only on change has gaps of its own: then only lost links count.
-    ok = drops == 0 and (drive == "idle" or (not stalls and not lat.get("probe_error")))
+    ok = drops == 0 and (drive == "idle" or (not stalls and not lat.get("probe_error") and not lat.get("missed")))
     rec(ok=ok, seconds=p["seconds"], drive=drive, drops=drops, stalls=len(stalls),
         worst_stalls_ms=sorted(stalls)[-5:], **stream_stats(times, span), **lat)
     disconnect(t)
@@ -837,6 +852,10 @@ TESTS = {"connect": test_connect, "relink": test_relink, "host-drop": test_host_
 
 def fmt_q(q, key="p50"):
     return "-" if not q else f"{q['p50']:.1f}/{q['p99']:.1f}/{q['max']:.1f}"
+
+
+def merged_text(r):
+    return f" (+{r['merged']} pulses under 8 ms merged)" if r.get("merged") else ""
 
 
 def summarize(target, test, rows):
@@ -869,7 +888,7 @@ def summarize(target, test, rows):
     elif test == "latency" and cycles:
         r = cycles[-1]
         text = (f"total p50/p99/max {fmt_q(r['total_ms'])} ms (pad {fmt_q(r['pad_ms'])}, air {fmt_q(r['air_ms'])})"
-                f"; missed {r['missed']}/{r['expected']}; host {r['host_rate']:.0f} reports/s")
+                f"; missed {r['missed']}/{r['expected']}{merged_text(r)}; host {r['host_rate']:.0f} reports/s")
     elif test == "throughput" and cycles:
         r = cycles[-1]
         text = (f"pad {r['pad_rate']:.0f}/s, host {r['host_rate']:.0f}/s, lost or merged {r['lost']}"
@@ -883,7 +902,7 @@ def summarize(target, test, rows):
                     f"{fmt_q(r['gap_ms'])} ms; over {DEFAULTS['soak']['stall']} ms: {r['stalls']} "
                     f"{r['worst_stalls_ms'] or ''}; links lost {r['drops']}")
             if r.get("total_ms"):
-                text += f"; latency p50/p99/max {fmt_q(r['total_ms'])} ms, missed {r['missed']}/{r['expected']}"
+                text += f"; latency p50/p99/max {fmt_q(r['total_ms'])} ms, missed {r['missed']}/{r['expected']}{merged_text(r)}"
             if r.get("probe_error"):
                 text += f"; probe: {r['probe_error']}"
     return verdict, text
@@ -944,6 +963,7 @@ def main():
     ap.add_argument("--test", action="append", default=[], metavar="NAME[:K=V,...]", help="a test (see above)")
     ap.add_argument("--rounds", type=int, help="run the whole test list this many times (default 1)")
     ap.add_argument("--out", help="the results directory (default build/stress/<time>)")
+    ap.add_argument("--only", metavar="NAME,...", help="only these of the plan's targets (by name)")
     ap.add_argument("--example", action="store_true", help="print an example plan")
     ap.add_argument("--keep-pairing", action="store_true",
                     help="leave the PC paired with pads this run paired (their bond is gone after the reboot)")
@@ -958,6 +978,12 @@ def main():
     targets = plan.get("targets", []) + [parse_kv(x) for x in a.target]
     tests = plan.get("tests", []) + [{"test": x.split(":", 1)[0], **parse_kv(x.split(":", 1)[1] if ":" in x else "")}
                                      for x in a.test]
+    if a.only:
+        names = a.only.split(",")
+        unknown = [n for n in names if n not in {t.get("name") for t in targets}]
+        if unknown:
+            raise SystemExit(f"stress: no target {', '.join(unknown)} in the plan")
+        targets = [t for t in targets if t.get("name") in names]
     rounds = a.rounds or plan.get("rounds", 1)
     if not targets or not tests:
         ap.error("give a plan, or --target and --test")

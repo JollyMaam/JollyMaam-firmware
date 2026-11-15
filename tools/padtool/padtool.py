@@ -129,7 +129,7 @@ l4 r4 l3 r3 minus plus home m capture (or screenshot).
 The pad's tool device is HID; commands are usb.c's CDBs in feature reports
 (see the comment at the top of src/core/usb.c).  Flashing is jollymaam's (make flash).
 """
-import argparse, collections, glob, json, os, select, struct, sys, threading, time
+import argparse, bisect, collections, glob, json, os, select, struct, sys, threading, time
 from padtransport import scsi, device_paths, usb_location, data_max, is_tool, tool_name
 import padble
 import padcurves
@@ -1696,6 +1696,7 @@ def keep(path):
 
 
 EVENT = struct.Struct("@llHHi")
+SHORT_PULSE_US = 8000            # latency: a level the pad held this briefly may merge away
 EV_SYN, EV_KEY = 0, 1
 EVIOCSCLOCKID = 0x400445A0
 CLOCK_MONOTONIC = 1
@@ -1834,9 +1835,23 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
     mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
     sxx = sum((x - mx) ** 2 for x in xs)
     slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else 1000.0
-    to_host = lambda us: my + slope * (unwrap(us, ref) - mx)
-    residual = max(abs(y - to_host(s[1])) for y, s in zip(ys, syncs)) / 1e6
+    line = lambda us: my + slope * (unwrap(us, ref) - mx)
+    residual = max(abs(y - line(s[1])) for y, s in zip(ys, syncs)) / 1e6
     rtt = min(s[2] for s in syncs) / 1e6
+    # The pad's clock is not steady (its rate wanders by ~1 %): a straight
+    # line through a long run is off by milliseconds, so map between the two
+    # syncs around each time (one a second), the line's slope past the ends.
+    # Syncs slower than twice the best round trip are less exact: left out.
+    good = sorted((x, y) for x, y, s in zip(xs, ys, syncs) if s[2] <= 2 * rtt * 1e6) or list(zip(xs, ys))
+    gx = [x for x, _ in good]
+    def to_host(us):
+        x = unwrap(us, ref)
+        i = bisect.bisect_right(gx, x)
+        if 0 < i < len(good):
+            (x0, y0), (x1, y1) = good[i - 1], good[i]
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0) if x1 > x0 else y0
+        x0, y0 = good[0] if i == 0 else good[-1]
+        return y0 + slope * (x - x0)
 
     keys = collections.Counter(code for _, kind, code, _ in events if kind == EV_KEY)
     if not keys:
@@ -1844,6 +1859,9 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
     code = keys.most_common(1)[0][0]
     presses = [(t, v) for t, kind, c, v in events if kind == EV_KEY and c == code and v in (0, 1)]
     reports = sum(1 for t, kind, c, _ in events if kind == EV_SYN and c == 0 and started <= t <= ended)
+    dropped = [t for t, kind, c, _ in events if kind == EV_SYN and c == 3]     # SYN_DROPPED: this reader was late
+    if dropped:
+        print(f"host: the kernel dropped events for this reader {len(dropped)} times")
 
     pad_ms, air_ms, total_ms, rows = [], [], [], []
     alone = [r for r in records if r[1]]
@@ -1854,6 +1872,14 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
         if r[2] != host_level:
             expected.append(r)
             host_level = r[2]
+    # A pulse shorter than a link event or two can reach the receiver in one
+    # event with the edge that undoes it, and the newer state wins: such a
+    # missed edge is counted apart from the others.
+    def short(i):
+        d = [(expected[k + 1][1] - expected[k][1]) & 0xFFFFFFFF for k in (i - 1, i)
+             if 0 <= k and k + 1 < len(expected)]
+        return bool(d) and min(d) < SHORT_PULSE_US
+    missed_short = 0
     j = 0
     for i, (edge_us, sent_us, level) in enumerate(expected):
         t_edge = to_host(edge_us)
@@ -1875,6 +1901,8 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
             air_ms.append(total - pad)
             rows.append(((t_edge - started) / 1e6, level, pad, total))
             j = k + 1
+        elif short(i):
+            missed_short += 1
     if csv_path:
         with open(csv_path, "w") as f:
             f.write("edge_ms,level,pad_ms,total_ms\n")
@@ -1885,10 +1913,12 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
             f.write("# host events: t_ms,code,value\n")
             f.writelines(f"# {(t - started) / 1e6:.3f},{c:#x},{v}\n" for t, k, c, v in events if k == EV_KEY)
     span = (ended - started) / 1e9
-    print(f"clock: round trip {rtt:.2f} ms, fit within {residual:.2f} ms, pad clock {slope / 1000:.6f}x")
+    print(f"clock: round trip {rtt:.2f} ms, pad clock {slope / 1000:.6f}x, {residual:.2f} ms off a straight line; "
+          f"mapped between {len(good)} syncs")
     print(f"edges: {len(records)} made, {len(alone)} sent in a report of their own "
           f"({len(records) - len(alone)} undone first), {len(total_ms)} of the {len(expected)} "
           f"changes it should see seen by the host"
+          f"{f' (of the missed, {missed_short} in pulses under {SHORT_PULSE_US / 1000:g} ms)' if missed_short else ''}"
           f"{f', {lost} records overwritten' if lost else ''}")
     if throughput:
         sent = sorted(to_host(r[1]) for r in alone)
@@ -1918,7 +1948,7 @@ def latency(path, seconds, period_ms, event, csv_path=None, throughput=False):
     return {"mode": "latency", "seconds": seconds, "period_ms": period_ms, "event": event,
             "clock_rtt_ms": round(rtt, 3), "clock_fit_ms": round(residual, 3),
             "edges": len(records), "alone": len(alone), "expected": len(expected),
-            "seen": len(total_ms), "pad_rate": round(len(alone) / span, 1),
+            "seen": len(total_ms), "missed_short": missed_short, "pad_rate": round(len(alone) / span, 1),
             "host_rate": round(reports / span, 1),
             "pad_ms": quantiles(pad_ms) if matched else None,
             "air_ms": quantiles(air_ms) if matched else None,

@@ -1,0 +1,18 @@
+{
+  "targets": [
+    {"name": "c2-edr", "pad": "Cyclone 2", "link": "bluetooth", "slot": "south", "type": "generic"},
+    {"name": "c2-ble", "pad": "Cyclone 2", "link": "bluetooth", "slot": "east", "type": "generic-ble"},
+    {"name": "c2-dongle", "pad": "Cyclone 2", "link": "dongle", "slot": "west", "type": "generic", "dongle": "Cyclone 2 Dongle"},
+    {"name": "n2l-edr", "pad": "Nova 2 Lite", "link": "bluetooth", "slot": "south", "type": "generic"},
+    {"name": "n2l-ble", "pad": "Nova 2 Lite", "link": "bluetooth", "slot": "east", "type": "generic-ble"},
+    {"name": "n2l-dongle", "pad": "Nova 2 Lite", "link": "dongle", "slot": "west", "type": "generic", "dongle": "Nova 2 Lite Dongle"},
+    {"name": "u2cw-ble", "pad": "Ultimate 2C Wireless", "link": "bluetooth", "slot": "east", "type": "generic-ble"},
+    {"name": "u2cb-edr", "pad": "Ultimate 2C Bluetooth", "link": "bluetooth", "slot": "east", "type": "generic"}
+  ],
+  "tests": [
+    {"test": "connect", "count": 10, "hold": 2},
+    {"test": "relink", "count": 5},
+    {"test": "host-drop", "count": 3},
+    {"test": "reboot", "count": 2}
+  ]
+}
