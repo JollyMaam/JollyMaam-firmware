@@ -273,6 +273,8 @@ static void stopped(u32 now)
         c.wake_after_stop = 0;
         c.waking = !c.prof->wake->start(&c.sess);
         if (!c.waking) radio_on();
+    } else if (c.kind == CTL_CONNECTING && !c.waking) {
+        radio_on();                      /* the radio ended a stuck link (bt_pad.c): again */
     } else if (c.kind == CTL_STOPPING) {
         c.slot = SLOT_NONE;
         c.prof = NULL;

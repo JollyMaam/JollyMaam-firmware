@@ -896,16 +896,27 @@ static void gave_way_timeout(btstack_timer_source_t *t)
  * length requests, its disconnect; not established why), while ours still
  * go through: we end such a link ourselves and connect again. */
 #define LINK_ENCRYPT_MS 2000
+/* A link that takes not even our disconnect is dropped here, and the
+ * radio starts again (controller.c, BT_EV_STOPPED while connecting). */
+#define LINK_DROP_MS    1000
 static btstack_timer_source_t link_watch;
 static u8 le_encrypted, link_redo;
 
 static void link_watch_timeout(btstack_timer_source_t *t)
 {
-    (void)t;
     if (!acl_up || !le || le_encrypted) return;
+    if (link_redo) {
+        util_log("bt: the link took no disconnect in %u ms: dropping it", LINK_DROP_MS);
+        unlinked(ERROR_CODE_CONNECTION_TIMEOUT);
+        hci_jieli_drop_link();
+        btstack_run_loop_trigger_exit();
+        return;
+    }
     util_log("bt: not encrypted after %u ms: connecting again", LINK_ENCRYPT_MS);
     link_redo = 1;
     gap_disconnect(con_handle);
+    btstack_run_loop_set_timer(t, LINK_DROP_MS);
+    btstack_run_loop_add_timer(t);
 }
 
 static void unlinked(u8 reason)
@@ -1124,6 +1135,11 @@ static void le_connected(u8 *packet)
     le_encrypted = 0;
     interval_asked = 0;
     if (dev == profile_link.device) {
+        /* Our dongle asks for 2M and the data length itself (bt_dongle.c),
+         * after the MTU exchange: asked from both ends too, the procedures
+         * could collide, and this link layer answers some of the peer's only
+         * while none of its own runs (ll_slave.c, LL_VERSION_IND). */
+        data_length_pending = phy_pending = 0;
         btstack_run_loop_set_timer_handler(&link_watch, link_watch_timeout);
         btstack_run_loop_set_timer(&link_watch, LINK_ENCRYPT_MS);
         btstack_run_loop_add_timer(&link_watch);
