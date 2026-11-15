@@ -19,16 +19,20 @@ export const RULES = 16, RULE_SIZE = 10, MAX_HZ = 30;
 
 export const TRIGGERS = [null, "held", "held_for", "pressed", "released", "tapped", "double_tapped"];
 export const EFFECTS = ["hold", "turbo", "nothing", "tap", "toggle_hold", "toggle_turbo",
-  "turbo_modifier", "toggle_turbo_modifier"];
+  "turbo_modifier", "toggle_turbo_modifier", "macro", "play_macro", "toggle_macro"];
 const LEVEL_TRIGGERS = ["held", "held_for"];
-const LEVEL_EFFECTS = ["hold", "turbo", "turbo_modifier", "nothing"];
-const EVENT_EFFECTS = ["tap", "toggle_hold", "toggle_turbo", "toggle_turbo_modifier"];
+const LEVEL_EFFECTS = ["hold", "turbo", "turbo_modifier", "nothing", "macro"];
+const EVENT_EFFECTS = ["tap", "toggle_hold", "toggle_turbo", "toggle_turbo_modifier", "play_macro", "toggle_macro"];
+// They play one of the remap slot's macros: the rate byte is its number, 1 the first.
+export const MACRO_EFFECTS = ["macro", "play_macro", "toggle_macro"];
+export const MACROS = 8;
 export const TIMED = { held_for: 300, tapped: 200, double_tapped: 300 };   // the editors' starting times
 export const TURBO = ["turbo", "toggle_turbo", "turbo_modifier", "toggle_turbo_modifier"];
 export const TURBO_HZ = 15;
 // Switching between a level and an event trigger keeps the effect's kind.
 export const EFFECT_TWINS = { hold: "tap", tap: "hold", toggle_hold: "hold", turbo: "toggle_turbo",
-  toggle_turbo: "turbo", turbo_modifier: "toggle_turbo_modifier", toggle_turbo_modifier: "turbo_modifier", nothing: "tap" };
+  toggle_turbo: "turbo", turbo_modifier: "toggle_turbo_modifier", toggle_turbo_modifier: "turbo_modifier", nothing: "tap",
+  macro: "play_macro", play_macro: "macro", toggle_macro: "macro" };
 
 export function keyBit(name) {
   const n = ALIASES[name.toLowerCase()] ?? name.toLowerCase();
@@ -80,8 +84,9 @@ export function parseMap(text) {
 // ---- rules -----------------------------------------------------------------
 
 // A rule, with the editors' starting time and rate filled in.
-export function rule(input, trigger, effect, outputs = [], ms = undefined, rate = undefined) {
-  return { input, trigger, effect, outputs: [...outputs], ms: ms ?? TIMED[trigger] ?? null, rate: rate ?? TURBO_HZ };
+export function rule(input, trigger, effect, outputs = [], ms = undefined, rate = undefined, macro = undefined) {
+  return { input, trigger, effect, outputs: [...outputs], ms: ms ?? TIMED[trigger] ?? null, rate: rate ?? TURBO_HZ,
+    macro: macro ?? 1 };
 }
 
 export function checkRule(r) {
@@ -97,6 +102,9 @@ export function checkRule(r) {
   if (TURBO.includes(r.effect) && !(Number.isInteger(r.rate) && r.rate >= 0 && r.rate <= MAX_HZ)) {
     throw new RemapError(`rule: turbo is 1-${MAX_HZ} Hz or max`);
   }
+  if (MACRO_EFFECTS.includes(r.effect) && !(Number.isInteger(r.macro) && r.macro >= 1 && r.macro <= MACROS)) {
+    throw new RemapError(`rule: a macro is 1-${MACROS}`);
+  }
 }
 
 export function decodeRules(raw) {
@@ -106,7 +114,8 @@ export function decodeRules(raw) {
     if (!trigger || trigger >= TRIGGERS.length || effect >= EFFECTS.length || key >= INPUTS || !KEYS[key]) continue;
     const mask = (raw[i + 4] | (raw[i + 5] << 8) | (raw[i + 6] << 16) | (raw[i + 7] << 24)) >>> 0;
     out.push(rule(KEYS[key], TRIGGERS[trigger], EFFECTS[effect], KEYS.filter((k, b) => k && (mask >>> b) & 1),
-      TRIGGERS[trigger] in TIMED ? ms10 * 10 : undefined, TURBO.includes(EFFECTS[effect]) ? raw[i + 8] : undefined));
+      TRIGGERS[trigger] in TIMED ? ms10 * 10 : undefined, TURBO.includes(EFFECTS[effect]) ? raw[i + 8] : undefined,
+      MACRO_EFFECTS.includes(EFFECTS[effect]) ? raw[i + 8] : undefined));
   }
   return out;
 }
@@ -118,11 +127,11 @@ export function encodeRules(rules, count = RULES) {
   rules.forEach((r, n) => {
     checkRule(r);
     let mask = 0;
-    if (r.effect !== "nothing") for (const o of r.outputs) mask |= 1 << keyBit(o);
+    if (r.effect !== "nothing" && !MACRO_EFFECTS.includes(r.effect)) for (const o of r.outputs) mask |= 1 << keyBit(o);
     const o = n * RULE_SIZE;
     raw.set([TRIGGERS.indexOf(r.trigger), keyBit(r.input), r.trigger in TIMED ? roundEven(r.ms / 10) : 0,
       EFFECTS.indexOf(r.effect), mask & 0xff, (mask >>> 8) & 0xff, (mask >>> 16) & 0xff, (mask >>> 24) & 0xff,
-      TURBO.includes(r.effect) ? r.rate : 0], o);
+      TURBO.includes(r.effect) ? r.rate : MACRO_EFFECTS.includes(r.effect) ? r.macro : 0], o);
   });
   return raw;
 }
@@ -131,6 +140,7 @@ export function showRule(r) {
   let text = `${r.input} ${r.trigger}`;
   if (r.trigger in TIMED) text += `:${r.ms}`;
   text += ` ${r.effect}`;
+  if (MACRO_EFFECTS.includes(r.effect)) return `${text} ${r.macro}`;
   if (r.effect !== "nothing") text += " " + (r.outputs.join("+") || "-");
   if (TURBO.includes(r.effect)) text += "@" + (r.rate ? r.rate : "max");
   return text;
@@ -147,14 +157,16 @@ export function parseRule(text) {
   const words = text.trim().split(/\s+/);
   if (words.length < 3) throw new RemapError(`rule ${JSON.stringify(text.trim())}: INPUT TRIGGER[:MS] EFFECT [OUT+OUT][@HZ|@max]`);
   const [trigger, ms] = words[1].split(/:(.*)/s);
-  let outputs = [], rate;
-  if (words.length > 3) {
+  let outputs = [], rate, macro;
+  if (MACRO_EFFECTS.includes(words[2]) && words.length > 3) {
+    macro = intOf(words[3], "macro");
+  } else if (words.length > 3) {
     const [out, hz] = words[3].split(/@(.*)/s);
     outputs = out.split("+").filter((o) => o && o !== "-");
     if (hz) rate = hz === "max" ? 0 : intOf(hz, "rate");
   }
   const alias = (k) => ALIASES[k.toLowerCase()] ?? k.toLowerCase();
-  const r = rule(alias(words[0]), trigger, words[2], outputs.map(alias), ms ? intOf(ms, "time") : undefined, rate);
+  const r = rule(alias(words[0]), trigger, words[2], outputs.map(alias), ms ? intOf(ms, "time") : undefined, rate, macro);
   checkRule(r);
   return r;
 }
@@ -163,6 +175,93 @@ export function parseRules(text, count = RULES) {
   text = text.trim();
   if (!text || text === "none") return encodeRules([], count);
   return encodeRules(text.split(";").filter((p) => p.trim()).map(parseRule), count);
+}
+
+// ---- macros -------------------------------------------------------------------
+//
+// A remap slot's macros (padremap.py's text, pad.h's bytes): ';'-separated
+// "NAME: STEP ...", a step +KEY (press), -KEY (release) or the milliseconds
+// before the next (4 ms steps; one at the end is the pause before the macro
+// can run again).  As objects: {name, steps: [{ms, key, press}]}, ms the wait
+// before the step; a step with key null is that pause.
+
+export const MACRO_UNIT_MS = 4, MACRO_NAME = 16, MACRO_BYTES = 200;
+const MACRO_PRESS = 0x20, MACRO_WAIT_ONLY = 0xff;
+const utf8 = (s) => new TextEncoder().encode(s);
+
+export function decodeMacros(raw) {
+  const out = [];
+  for (let o = 0; o < raw.length && raw[o]; o += 1 + raw[o]) {
+    const end = Math.min(o + 1 + raw[o], raw.length), n = raw[o + 1] ?? 0;
+    const name = new TextDecoder().decode(raw.subarray(o + 2, o + 2 + n));
+    const steps = [];
+    let wait = 0;
+    for (let i = o + 2 + n; i + 1 < end; i += 2) {
+      wait += raw[i] * MACRO_UNIT_MS;
+      const a = raw[i + 1], key = KEYS[a & 0x1f];
+      if (a === MACRO_WAIT_ONLY || (a & ~MACRO_PRESS & 0xff) >= INPUTS || !key) continue;
+      steps.push({ ms: wait, key, press: !!(a & MACRO_PRESS) });
+      wait = 0;
+    }
+    if (wait) steps.push({ ms: wait, key: null, press: false });
+    out.push({ name, steps });
+  }
+  return out;
+}
+
+// Each macro's bytes: {length, name length, name, steps}.
+function macroBytes(m) {
+  const name = utf8(m.name);
+  if (name.length > MACRO_NAME) throw new RemapError(`macro ${JSON.stringify(m.name)}: a name is at most ${MACRO_NAME} bytes`);
+  const body = [];
+  for (const s of m.steps) {
+    if (!(Number.isInteger(s.ms) && s.ms >= 0)) throw new RemapError(`macro ${JSON.stringify(m.name)}: a wait is a number of ms`);
+    let units = Math.floor((s.ms + MACRO_UNIT_MS / 2) / MACRO_UNIT_MS);
+    for (; units > 0xff; units -= 0xff) body.push(0xff, MACRO_WAIT_ONLY);
+    if (s.key === null) {
+      if (units) body.push(units, MACRO_WAIT_ONLY);
+    } else {
+      body.push(units, keyBit(s.key) | (s.press ? MACRO_PRESS : 0));
+    }
+  }
+  if (!body.length) throw new RemapError(`macro ${JSON.stringify(m.name)} has no steps`);
+  if (1 + name.length + body.length > 0xff) throw new RemapError(`macro ${JSON.stringify(m.name)} is too long`);
+  return [1 + name.length + body.length, name.length, ...name, ...body];
+}
+
+// The bytes the macros take, for the editor's count.
+export const macrosLength = (macros) => macros.reduce((n, m) => n + macroBytes(m).length, 0);
+
+export function encodeMacros(macros, size = MACRO_BYTES) {
+  if (macros.length > MACROS) throw new RemapError(`at most ${MACROS} macros`);
+  const bytes = macros.flatMap(macroBytes);
+  if (bytes.length > size) throw new RemapError(`the macros take ${bytes.length} bytes; the pad has ${size}`);
+  const raw = new Uint8Array(size);
+  raw.set(bytes);
+  return raw;
+}
+
+export const showMacros = (raw) => decodeMacros(raw).map((m) => `${m.name}: ` + m.steps.map((s) =>
+  [s.ms ? String(s.ms) : null, s.key ? (s.press ? "+" : "-") + s.key : null].filter(Boolean).join(" ")).join(" ")).join("; ") || "none";
+
+export function parseMacros(text, size = MACRO_BYTES) {
+  text = text.trim();
+  if (!text || text === "none") return encodeMacros([], size);
+  return encodeMacros(text.split(";").filter((p) => p.trim()).map((part) => {
+    const at = part.indexOf(":");
+    if (at < 0) throw new RemapError(`macro ${JSON.stringify(part.trim())}: NAME: STEP STEP ...`);
+    const name = part.slice(0, at).trim(), steps = [];
+    let wait = 0;
+    for (const word of part.slice(at + 1).trim().split(/\s+/).filter(Boolean)) {
+      if (/^\d+$/.test(word)) wait += Number(word);
+      else if (word[0] === "+" || word[0] === "-") {
+        steps.push({ ms: wait, key: KEYS[keyBit(word.slice(1))], press: word[0] === "+" });
+        wait = 0;
+      } else throw new RemapError(`macro ${JSON.stringify(name)}: ${JSON.stringify(word)} is not +KEY, -KEY or a number of ms`);
+    }
+    if (wait) steps.push({ ms: wait, key: null, press: false });
+    return { name, steps };
+  }), size);
 }
 
 // ---- presets -----------------------------------------------------------------

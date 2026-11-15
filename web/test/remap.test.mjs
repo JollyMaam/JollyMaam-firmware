@@ -20,6 +20,10 @@ test("maps, rules and curves as the Python makes them", () => {
     assert.equal(hex(remap.parseRules(v.input)), v.hex, v.input);
     assert.equal(remap.showRules(bytes(v.hex)), v.text, v.input);
   }
+  for (const v of vectors.macros) {
+    assert.equal(hex(remap.parseMacros(v.input)), v.hex, v.input);
+    assert.equal(remap.showMacros(bytes(v.hex)), v.text, v.input);
+  }
   for (const v of vectors.curves) assert.equal(hex(remap.curvePreset(v.name)), v.hex, v.name);
   assert.deepEqual(Array.from(remap.curvePreset("linear")), [16, 32, 48, 64, 80, 96, 112, 128, 143, 159, 175, 191, 207, 223, 239]);
 });
@@ -73,4 +77,23 @@ test("curve points move anywhere; the others make way", () => {
   const sweep = placePoints(linear, new Map([[0, 100], [1, 90], [2, 80]]), 2);
   assert.deepEqual(Array.from(sweep.subarray(0, 4)), [80, 80, 80, 80]);
   assert.deepEqual(Array.from(placePoints(linear, new Map([[5, 999]]), 5)).slice(5), Array(10).fill(255));
+});
+
+test("macros: steps and their waits, what the firmware refuses", () => {
+  const m = remap.decodeMacros(remap.parseMacros("a: +south 40 -south 1500; b: 3000 +up -up"));
+  assert.deepEqual(m[0], { name: "a", steps: [{ ms: 0, key: "south", press: true }, { ms: 40, key: "south", press: false },
+    { ms: 1500, key: null, press: false }] });
+  assert.equal(m[1].steps[0].ms, 3000);                     // long waits split, read back whole
+  assert.equal(remap.macrosLength(m), 3 + 2 + 2 + 4 + 3 + 4 + 2 + 2);   // a long wait: 255-unit wait steps
+  const raw = remap.encodeMacros(m, 146);
+  assert.equal(raw.length, 146);
+  assert.equal(remap.showMacros(raw), "a: +south 40 -south 1500; b: 3000 +up -up");
+  for (const bad of ["x +up", "x: +q", "x: up", "x".repeat(17) + ": +up", "x: " + "+up 40 -up ".repeat(60)]) {
+    assert.throws(() => remap.parseMacros(bad), remap.RemapError, bad);
+  }
+  assert.throws(() => remap.encodeMacros(Array.from({ length: 9 }, () => m[0])), remap.RemapError);
+  const r = remap.parseRules("l4 pressed play_macro 3");
+  assert.deepEqual(Array.from(r.subarray(0, 10)), [3, 8, 0, 9, 0, 0, 0, 0, 3, 0]);
+  assert.throws(() => remap.parseRules("l4 pressed play_macro 9"), remap.RemapError);
+  assert.throws(() => remap.parseRules("l4 held play_macro 1"), remap.RemapError);
 });

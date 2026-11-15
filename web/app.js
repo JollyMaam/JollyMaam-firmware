@@ -8,10 +8,11 @@ import { links as webBluetooth } from "./link-web.js";
 import { links as webUsb } from "./link-hid.js";
 import { android } from "./link-android.js";
 import { setupPads } from "./flash.js";
-import { Pad, TARGETS, T, PALETTE, PALETTE_TARGET, REMAP_TARGET, BASE_TARGET, SLOT_NAMES, kindOf, targetsFor, showValue,
-  parseValue, editable, slotLabel, remapPart } from "./pad.js";
+import { Pad, TARGETS, T, PALETTE, PALETTE_TARGET, REMAP_TARGET, BASE_TARGET, MACROS_TARGET, SLOT_NAMES, kindOf, targetsFor,
+  showValue, parseValue, editable, slotLabel, remapPart, macrosOf, remapOf } from "./pad.js";
 import { $, h, nameMenu } from "./dom.js";
-import { remapEditor, curveEditor } from "./editors.js";
+import { remapEditor, curveEditor, macroEditor } from "./editors.js";
+import { decodeMacros, parseMacros } from "./remap.js";
 import { writeTests, updaterTrip } from "./linktest.js";
 import { openPackage, findFile, checkUpdateImage } from "./package.js";
 import { intoUpdater, sendImage, finish } from "./update.js";
@@ -85,6 +86,7 @@ addEventListener("popstate", (e) => {
 
 // A target as people read it: "Slot B (south)", "Remap base", "Palette".
 function targetName(t) {
+  if (t >= MACROS_TARGET) return `${targetName(remapOf(t))} macros`;
   if (t < 8) return `Slot ${slotLabel(layout, t)}`;
   if (t === BASE_TARGET) return "Remap base";
   if (t >= REMAP_TARGET) return `Remap ${slotLabel(layout, t - REMAP_TARGET)}`;
@@ -203,14 +205,14 @@ function row(t, f, rows) {
   const key = keyOf(t, f), part = remapPart(f);
   // The map and rules are the keys editor's (it writes their text here);
   // a curve's on/off follows its points.
-  const merged = part === "map" || part === "rules" || (f.kind === 3 && f.name.endsWith("_curve_enabled"));
+  const merged = part === "map" || part === "rules" || part === "macros" || (f.kind === 3 && f.name.endsWith("_curve_enabled"));
   const tr = h("tr", { class: [merged ? "merged" : null, v.set ? "set" : null].filter(Boolean).join(" ") || null, "data-key": key });
   const how = look(t, f);
   let cell, input = null;
   if (editable(f)) {
     cell = editor(t, f, shown, how);
     input = cell.matches("input, select") ? cell : cell.querySelector("input, select");
-    if (part === "map" || part === "rules") input.classList.add("wide");
+    if (part === "map" || part === "rules" || part === "macros") input.classList.add("wide");
     if (part === "curve") {
       input.classList.add("wide");
       cell = curveEditor(input, f.size, () => rows.get(f.name.replace("_points", "_enabled"))?.input);
@@ -283,13 +285,29 @@ function targetSection(t, open) {
     return tr;
   });
   const map = fields.find((f) => remapPart(f) === "map"), rules = fields.find((f) => remapPart(f) === "rules");
-  let keys = null;
+  // The remap slot's macros: their own target, edited here under the rules.
+  const mt = kindOf(t) === 3 ? macrosOf(t) : null, mvals = mt !== null ? values.get(mt) : null;
+  const mfield = mvals?.has("macros") ? table.find((f) => f.kind === 4 && f.name === "macros") : null;
+  const mrow = mfield ? row(mt, mfield, new Map()) : null;
+  const macroNames = () => {
+    try { return decodeMacros(parseMacros(mrow.input.value, 4096)).map((m) => m.name); } catch { return []; }
+  };
+  let keys = null, macros = null;
   if (map && rules && byName.get("map").input && byName.get("rules").input) {
     const raw = (m) => m?.has("map") && m.has("rules") ? { map: m.get("map").value, rules: m.get("rules").value } : null;
     keys = remapEditor({
       map: byName.get("map").input, rules: byName.get("rules").input, name: byName.get("name")?.input,
       rulesField: rules, saved: raw(vals), defaults: raw(defaults.get(t)), layout, file: TARGETS[t],
       resetAll: () => { byName.get("map").reset.click(); byName.get("rules").reset.click(); },
+      macroNames: mrow ? macroNames : null,
+    });
+  }
+  if (mrow?.input) {
+    const m = mvals.get("macros");
+    macros = macroEditor({
+      input: mrow.input, field: mfield, saved: m.value, defaults: defaults.get(mt)?.get("macros")?.value,
+      inherited: !m.set, base: t === BASE_TARGET, layout,
+      changed: () => keys?.redraw(), reset: () => mrow.reset.click(),
     });
   }
   // The rest, then a box per stick and trigger (padgui's grouping), then
@@ -308,6 +326,7 @@ function targetSection(t, open) {
     h("summary", {}, targetName(t), h("span", { class: "muted mono" }, ` ${TARGETS[t]}`)),
     rows.length ? settings(general) : h("p", { class: "muted" }, "Nothing here."),
     keys,
+    macros, mrow ? h("table", { hidden: true }, h("tbody", {}, mrow)) : null,
     [...boxes].map(([side, trs]) => h("section", { class: "box" }, h("h3", {}, SIDES[side]), settings(trs))),
     dev.length ? h("details", { class: "devfold", open: devOpen.has(t) },
       h("summary", {}, "Developer fields", h("span", { class: "muted" }, " — for measuring and testing")), settings(dev)) : null);
@@ -323,7 +342,9 @@ function render() {
   edits.clear();
   // A target the pad does not keep (the U2CW's last four slots) reads
   // with no values: not shown.
-  $("settings").replaceChildren(...[...values].filter(([, v]) => v.size).map(([t]) => targetSection(t, open.has(t))));
+  // Macros go with their remap slot.
+  $("settings").replaceChildren(...[...values].filter(([t, v]) => v.size && kindOf(t) !== 4)
+    .map(([t]) => targetSection(t, open.has(t))));
   bar();
 }
 
@@ -349,7 +370,12 @@ async function save() {
   try {
     $("save").textContent = "Saving…";
     await pad.write(items);
-    for (const t of new Set(items.map((e) => e.target))) await readTarget(t);
+    // A base's change shows in every remap slot that takes it from there.
+    const reread = new Set(items.map((e) => e.target));
+    for (const t of [...reread]) {
+      if (t === BASE_TARGET || t === macrosOf(BASE_TARGET)) for (const u of values.keys()) if (kindOf(u) === kindOf(t)) reread.add(u);
+    }
+    for (const t of reread) await readTarget(t);
     render();
     const s = await pad.status();
     showStatus(s);

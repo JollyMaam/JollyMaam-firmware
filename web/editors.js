@@ -6,7 +6,8 @@ import { h, svg, setControl, nameMenu } from "./dom.js";
 import {
   KEYS, TRIGGERS, TIMED, TURBO, MAX_HZ, RULE_SIZE, PRESETS, EFFECT_TWINS, effectsFor, rule, decodeMap, encodeMap,
   showMap, parseMap, decodeRules, encodeRules, showRule, showRules, parseRules, applyPreset, exportPreset, importPreset,
-  CURVE_PRESETS, curvePreset, identifyCurve, parseCurve,
+  CURVE_PRESETS, curvePreset, identifyCurve, parseCurve, MACRO_EFFECTS, MACROS, MACRO_NAME, MACRO_UNIT_MS,
+  decodeMacros, encodeMacros, showMacros, parseMacros, macrosLength,
 } from "./remap.js";
 
 // The keys in the editor's order (padgui's).
@@ -15,7 +16,8 @@ const KEY_ORDER = ["south", "east", "west", "north", "up", "down", "left", "righ
 const TRIGGER_LABELS = { held: "is held", held_for: "is held for", pressed: "is pressed", released: "is released",
   tapped: "is tapped under", double_tapped: "is double-tapped within" };
 const EFFECT_LABELS = { hold: "hold", turbo: "turbo", nothing: "nothing", tap: "tap", toggle_hold: "toggle hold",
-  toggle_turbo: "toggle turbo", turbo_modifier: "turbo modifier", toggle_turbo_modifier: "toggle turbo modifier" };
+  toggle_turbo: "toggle turbo", turbo_modifier: "turbo modifier", toggle_turbo_modifier: "toggle turbo modifier",
+  macro: "play macro, again while held", play_macro: "play macro once", toggle_macro: "loop macro on/off" };
 
 const SHORT = ["m", "l1", "r1", "l2", "r2", "l4", "r4", "l3", "r3"];
 const role = (k) => (SHORT.includes(k) ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1));
@@ -128,6 +130,15 @@ export function remapEditor(io) {
     return h("details", { class: "keys" }, summary, h("div", { class: "keylist" }, boxes));
   }
 
+  // Which of the remap slot's macros a rule plays: by name, any number up
+  // to MACROS (one not made yet plays nothing).
+  function macroPicker(r) {
+    const names = io.macroNames?.() ?? [];
+    const options = Array.from({ length: Math.max(names.length, r.macro, 1) }, (_, i) =>
+      [String(i + 1), i < names.length ? `${i + 1}: ${names[i] || "(no name)"}` : `${i + 1}: (none yet)`]);
+    return select(options, String(r.macro), (v) => change(() => { r.macro = Number(v); }, false), { "aria-label": "macro" });
+  }
+
   // A rule: × When [KEY] [is held…] [time ms] [effect] [keys] at [rate] Hz.
   function ruleEditor(r) {
     const remove = h("button", { type: "button", class: "small", title: "delete this rule" }, "×");
@@ -151,7 +162,8 @@ export function remapEditor(io) {
     const effects = effectsFor(r.trigger).filter((e) => e !== "nothing" || r.effect === "nothing");
     parts.push(select(effects.map((e) => [e, EFFECT_LABELS[e]]), r.effect,
       (v) => change(() => { r.effect = v; }), { "aria-label": "effect" }));
-    if (r.effect !== "nothing") parts.push(outputsPicker(r));
+    if (MACRO_EFFECTS.includes(r.effect)) parts.push(macroPicker(r));
+    else if (r.effect !== "nothing") parts.push(outputsPicker(r));
     if (TURBO.includes(r.effect)) {
       parts.push(h("span", {}, "at"), select([...Array.from({ length: MAX_HZ }, (_, i) => [String(i + 1), String(i + 1)]), ["0", "max"]],
         String(r.rate), (v) => change(() => { r.rate = Number(v); }), { "aria-label": "rate" }),
@@ -246,7 +258,217 @@ export function remapEditor(io) {
   root.addEventListener("pointerdown", (e) => {
     for (const d of root.querySelectorAll("details.keys[open]")) if (!d.contains(e.target)) d.open = false;
   });
+  root.redraw = () => { if (!writing) draw(); };   // the macros' names changed
   return root;
+}
+
+// ---- macros -------------------------------------------------------------------
+
+const TAP_MS = 40;               // a new tap's press, long enough for any host to see
+const ROOM = 4096;               // the editor's room: more than the pad's shows as too long, not as an error
+const STEP_KINDS = [["press", "Press"], ["release", "Release"], ["pause", "Pause"]];
+const kindOfStep = (s) => (s.key === null ? "pause" : s.press ? "press" : "release");
+
+// The keys each macro holds down at its end: what the pad lets go of then
+// (shown, so a missing release is no surprise).
+function stuck(m) {
+  const down = new Set();
+  for (const s of m.steps) if (s.key) s.press ? down.add(s.key) : down.delete(s.key);
+  return [...down];
+}
+
+// When each step happens, from the start: [{at, step}], and the whole run.
+function timeline(m) {
+  let t = 0;
+  const at = m.steps.map((s) => (t += s.ms));
+  return { at, total: t };
+}
+
+// A run as bars, a row per key, pressed from its press to its release (or
+// the run's end): what the host sees.
+function macroGraph(m, layout) {
+  const { at, total } = timeline(m);
+  const keys = [...new Set(m.steps.filter((s) => s.key).map((s) => s.key))];
+  if (!keys.length) return null;
+  const W = 300, ROW = 14, LABEL = 70, span = Math.max(total, 1), x = (t) => LABEL + (t / span) * (W - LABEL - 4);
+  const g = svg("svg", { viewBox: `0 0 ${W} ${keys.length * ROW + 14}`, class: "macrograph", role: "img",
+    "aria-label": `timeline, ${total} ms` });
+  keys.forEach((k, row) => {
+    const y = row * ROW;
+    const label = svg("text", { x: 0, y: y + 10, class: "label" });
+    label.textContent = keyLabel(layout, k);
+    g.append(svg("line", { x1: LABEL, y1: y + ROW - 2, x2: W - 4, y2: y + ROW - 2, class: "track" }), label);
+    let from = null;
+    m.steps.forEach((s, i) => {
+      if (s.key !== k) return;
+      if (s.press && from === null) from = at[i];
+      else if (!s.press && from !== null) {
+        g.append(svg("rect", { x: x(from), y: y + 2, width: Math.max(x(at[i]) - x(from), 1.5), height: ROW - 5, class: "bar" }));
+        from = null;
+      }
+    });
+    if (from !== null) g.append(svg("rect", { x: x(from), y: y + 2, width: Math.max(x(total) - x(from), 1.5), height: ROW - 5, class: "bar open" }));
+  });
+  const end = svg("text", { x: W - 4, y: keys.length * ROW + 11, class: "label end" });
+  end.textContent = `${total} ms`;
+  g.append(end);
+  return g;
+}
+
+// A remap slot's macros: a card each (name, steps, a timeline), what they
+// take of the pad's room.  io: { input } the macros field's text input
+// (padtool's text, which this writes), field (its size), saved and
+// defaults (raw), inherited (none of its own: the base's are shown), base
+// (this is the base's), layout, changed() after an edit, reset().
+export function macroEditor(io) {
+  let macros = [], writing = false;
+  const list = h("div", { class: "macros" });
+  const used = h("span", { class: "muted" });
+  const add = h("button", { type: "button", class: "small" }, "Add macro");
+  const reset = h("button", { type: "button", class: "small" }, io.base ? "Macros to default" : "Use the base's");
+  const head = h("div", { class: "actions" }, h("strong", {}, "Macros"), used, add, reset);
+  const note = h("p", { class: "muted" });
+  const problem = h("p", { class: "error", hidden: true });
+  const savedText = io.saved ? showMacros(io.saved) : null;
+
+  const load = () => {
+    try {
+      macros = decodeMacros(parseMacros(io.input.value, ROOM));
+      problem.hidden = true;
+      return true;
+    } catch (error) {
+      problem.textContent = error.message;
+      problem.hidden = false;
+      return false;
+    }
+  };
+
+  // The model into the text input; one the pad would refuse (too long)
+  // stays as text, so the count says what is wrong.
+  const write = () => {
+    writing = true;
+    try {
+      let text;
+      try {
+        text = showMacros(encodeMacros(macros, io.field.size));
+      } catch {
+        text = showMacros(encodeMacros(macros, ROOM));
+      }
+      setControl(io.input, text);
+    } catch (error) {
+      problem.textContent = error.message;
+      problem.hidden = false;
+    } finally {
+      writing = false;
+    }
+    io.changed?.();
+  };
+
+  const change = (fn, redraw = true) => {
+    fn();
+    write();
+    if (redraw) draw();
+    else counts();
+  };
+
+  function counts() {
+    let n = null;
+    try { n = macrosLength(macros); } catch { /* a step the pad would refuse: its error shows */ }
+    used.textContent = `${macros.length}/${MACROS} · ${n ?? "?"} of ${io.field.size} bytes`;
+    used.classList.toggle("error", n !== null && n > io.field.size);
+    add.disabled = macros.length >= MACROS;
+    head.classList.toggle("changed", savedText !== null && savedText !== io.input.value.trim());
+    reset.hidden = io.base ? !io.defaults || showMacros(io.defaults) === io.input.value.trim() : io.inherited && !head.classList.contains("changed");
+    note.textContent = io.inherited && !head.classList.contains("changed")
+      ? "None of its own: this remap plays the base remap's macros. Changing them here makes them its own."
+      : io.base ? "Every remap slot without macros of its own plays these." : "";
+    note.hidden = !note.textContent;
+  }
+
+  const keyOptions = () => KEY_ORDER.map((k) => [k, keyLabel(io.layout, k)]);
+
+  function stepRow(m, s, i) {
+    const ms = h("input", { type: "number", min: 0, max: 60000, step: MACRO_UNIT_MS, class: "ms", "aria-label": "wait before, ms" });
+    ms.value = String(s.ms);
+    ms.addEventListener("change", () => change(() => { s.ms = Math.max(0, Math.round(Number(ms.value) || 0)); }));
+    const kind = select(STEP_KINDS, kindOfStep(s), (v) => change(() => {
+      if (v === "pause") s.key = null;
+      else {
+        s.key ??= m.steps.slice(0, i).reverse().find((x) => x.key)?.key ?? "south";
+        s.press = v === "press";
+      }
+    }), { "aria-label": "step" });
+    const parts = [h("span", { class: "muted" }, i ? "then after" : "after"), ms, h("span", { class: "muted" }, "ms"), kind];
+    if (s.key !== null) parts.push(select(keyOptions(), s.key, (v) => change(() => { s.key = v; }), { "aria-label": "key" }));
+    const up = h("button", { type: "button", class: "small", title: "earlier", disabled: !i }, "↑");
+    up.addEventListener("click", () => change(() => { m.steps.splice(i - 1, 0, ...m.steps.splice(i, 1)); }));
+    const down = h("button", { type: "button", class: "small", title: "later", disabled: i === m.steps.length - 1 }, "↓");
+    down.addEventListener("click", () => change(() => { m.steps.splice(i + 1, 0, ...m.steps.splice(i, 1)); }));
+    const del = h("button", { type: "button", class: "small", title: "delete this step" }, "×");
+    del.addEventListener("click", () => change(() => { m.steps.splice(i, 1); }));
+    return h("div", { class: "rule step" }, del, ...parts, h("span", { class: "grow" }), up, down);
+  }
+
+  function macroCard(m, n) {
+    const name = h("input", { type: "text", maxlength: MACRO_NAME, placeholder: "name", spellcheck: "false",
+      "aria-label": `macro ${n + 1} name` });
+    name.value = m.name;
+    name.addEventListener("input", () => {
+      let v = name.value;
+      while (new TextEncoder().encode(v).length > MACRO_NAME) v = v.slice(0, -1);
+      if (v !== name.value) name.value = v;
+      change(() => { m.name = v; }, false);
+    });
+    const del = h("button", { type: "button", class: "small", title: "delete this macro (rules playing a later one then play the one before it)" }, "Delete");
+    del.addEventListener("click", () => {
+      if (m.steps.length && !confirm(`Delete macro ${n + 1}${m.name ? ` "${m.name}"` : ""}?`)) return;
+      change(() => { macros.splice(n, 1); });
+    });
+    const up = h("button", { type: "button", class: "small", title: "make it the macro before (rules play by number)", disabled: !n }, "↑");
+    up.addEventListener("click", () => change(() => { macros.splice(n - 1, 0, ...macros.splice(n, 1)); }));
+    // Adding: a tap of a key (its press and release), a press, a release, a pause.
+    const key = select(keyOptions(), m.steps.findLast((s) => s.key)?.key ?? "south", () => {}, { "aria-label": "key to add" });
+    const gap = () => (m.steps.length ? 48 : 0);   // 4 ms steps
+    const tap = h("button", { type: "button", class: "small" }, "+ Tap");
+    tap.addEventListener("click", () => change(() => {
+      m.steps.push({ ms: gap(), key: key.value, press: true }, { ms: TAP_MS, key: key.value, press: false });
+    }));
+    const press = h("button", { type: "button", class: "small" }, "+ Press");
+    press.addEventListener("click", () => change(() => { m.steps.push({ ms: gap(), key: key.value, press: true }); }));
+    const release = h("button", { type: "button", class: "small" }, "+ Release");
+    release.addEventListener("click", () => change(() => { m.steps.push({ ms: gap(), key: key.value, press: false }); }));
+    const pause = h("button", { type: "button", class: "small", title: "a wait at the end: the gap before it can run again" }, "+ Pause");
+    pause.addEventListener("click", () => change(() => { m.steps.push({ ms: 200, key: null, press: false }); }));
+    const left = stuck(m);
+    const { total } = timeline(m);
+    return h("section", { class: "box macro" },
+      h("div", { class: "actions" }, h("strong", {}, `Macro ${n + 1}`), name,
+        h("span", { class: "muted" }, `${m.steps.length} step${m.steps.length === 1 ? "" : "s"}, ${total} ms`), up, del),
+      macroGraph(m, io.layout),
+      h("div", { class: "steps" }, m.steps.length ? m.steps.map((s, i) => stepRow(m, s, i))
+        : h("p", { class: "muted" }, "No steps yet: add a tap below.")),
+      left.length ? h("p", { class: "muted" }, `Still held at the end: ${left.map((k) => keyLabel(io.layout, k)).join(", ")} ` +
+        "(let go when the run ends).") : null,
+      h("div", { class: "actions add" }, key, tap, press, release, pause));
+  }
+
+  function draw() {
+    if (!load()) return list.replaceChildren(), counts();
+    list.replaceChildren(...macros.map(macroCard));
+    counts();
+  }
+
+  add.addEventListener("click", () => change(() => {
+    macros.push({ name: `Macro ${macros.length + 1}`, steps: [{ ms: 0, key: "south", press: true }, { ms: TAP_MS, key: "south", press: false }] });
+  }));
+  reset.addEventListener("click", () => io.reset());
+  const reload = () => { if (!writing) draw(); };
+  io.input.addEventListener("input", reload);
+  io.input.addEventListener("change", reload);
+  draw();
+  return h("div", { class: "remap macroedit" }, head, note, problem, list,
+    h("p", { class: "muted" }, "A rule above plays a macro by number: once, again while its key is held, or looping until ",
+      "pressed again. While it plays, the keys it uses are its own. Waits go in 4 ms steps."));
 }
 
 // ---- curves -----------------------------------------------------------------

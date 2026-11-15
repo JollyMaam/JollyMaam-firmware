@@ -2,7 +2,7 @@
 // and their answers.  The wire is src/lib/proto_jollymaam_wire.h and
 // src/profiles/profile_config.c; padtool (tools/padtool) speaks the same.
 
-import { showMap, parseMap, showRules, parseRules, parseCurve, RULE_SIZE } from "./remap.js";
+import { showMap, parseMap, showRules, parseRules, parseCurve, showMacros, parseMacros, RULE_SIZE } from "./remap.js";
 import { HidCommands, dataMax as hidDataMax, commandMax as hidCommandMax } from "./frames-hid.js";
 
 export const PROTOCOL = 2;
@@ -31,9 +31,13 @@ export const SLOT_NAMES = ["south", "east", "west", "north", "up", "down", "left
 export const TARGETS = [
   ...SLOT_NAMES.map((n) => "slot-" + n), "palette", "calibration",
   ...SLOT_NAMES.map((n) => "remap-" + n), "remap-base",
+  ...SLOT_NAMES.map((n) => "macros-" + n), "macros-base",
 ];
 export const REMAP_TARGET = 10, BASE_TARGET = 18;
-export const KINDS = ["slot", "palette", "calibration", "remap"];
+// Each remap slot's macros, then the base's: their own targets (never in
+// the pad's RAM), shown with their remap slot.
+export const MACROS_TARGET = 19, BASE_MACROS_TARGET = 27;
+export const KINDS = ["slot", "palette", "calibration", "remap", "macros"];
 export const T = { ENUM: 0, NUMBER: 1, RGB: 2, BYTES: 3, TEXT: 4, ENTRY: 5, LIST: 6 };
 export const RESULTS = ["ok", "unknown setting", "bad length", "out of range", "full"];
 export const PALETTE_TARGET = 8, CALIBRATION_TARGET = 9, PALETTE = 16;
@@ -56,7 +60,10 @@ export function slotLabel(layout, slot) {
   return printed && printed.toLowerCase() !== role ? `${printed} (${role})` : role;
 }
 
-export const kindOf = (t) => (t < 8 ? 0 : t >= REMAP_TARGET ? 3 : t - 7);
+export const kindOf = (t) => (t < 8 ? 0 : t >= MACROS_TARGET ? 4 : t >= REMAP_TARGET ? 3 : t - 7);
+// A remap target's macros target, and back.
+export const macrosOf = (t) => (t === BASE_TARGET ? BASE_MACROS_TARGET : MACROS_TARGET + t - REMAP_TARGET);
+export const remapOf = (t) => (t === BASE_MACROS_TARGET ? BASE_TARGET : REMAP_TARGET + t - MACROS_TARGET);
 
 // The targets a table describes: the palette and remap slots only where it
 // has their fields (one-colour lights have no palette), the base remap
@@ -65,7 +72,8 @@ export function targetsFor(table) {
   const has = (kind) => table.some((f) => f.kind === kind);
   const slots = [...Array(PALETTE_TARGET).keys()];
   const remaps = has(3) ? [BASE_TARGET, ...Array.from({ length: BASE_TARGET - REMAP_TARGET }, (_, i) => REMAP_TARGET + i)] : [];
-  return [...slots, ...remaps, ...(has(1) ? [PALETTE_TARGET] : []), CALIBRATION_TARGET];
+  const macros = has(3) && has(4) ? remaps.map(macrosOf) : [];
+  return [...slots, ...remaps, ...(has(1) ? [PALETTE_TARGET] : []), CALIBRATION_TARGET, ...macros];
 }
 
 const u16 = (d, o) => d[o] | (d[o + 1] << 8);
@@ -159,8 +167,9 @@ export function decodeValues(d, table, target) {
   return out;
 }
 
-// What a remap slot's raw-bytes field is: "map", "rules", "curve" or null.
+// What a remap slot's raw-bytes field is: "map", "rules", "curve", "macros" or null.
 export function remapPart(f) {
+  if (f.kind === 4 && f.type === T.BYTES && f.name === "macros") return "macros";
   if (f.kind !== 3 || f.type !== T.BYTES) return null;
   return f.name === "map" ? "map" : f.name === "rules" ? "rules" : f.name.endsWith("_curve_points") ? "curve" : null;
 }
@@ -170,6 +179,7 @@ export function showValue(f, raw) {
     case "map": return showMap(raw);
     case "rules": return showRules(raw);
     case "curve": return Array.from(raw).join(",");
+    case "macros": return showMacros(raw);
   }
   switch (f.type) {
     case T.TEXT: return text(raw);
@@ -195,7 +205,8 @@ export function parseValue(f, s) {
   const part = remapPart(f);
   if (part) {
     try {
-      return part === "map" ? parseMap(s) : part === "rules" ? parseRules(s, f.size / RULE_SIZE) : parseCurve(s, f.size);
+      return part === "map" ? parseMap(s) : part === "rules" ? parseRules(s, f.size / RULE_SIZE)
+        : part === "macros" ? parseMacros(s, f.size) : parseCurve(s, f.size);
     } catch (error) {
       fail(error.message);
     }

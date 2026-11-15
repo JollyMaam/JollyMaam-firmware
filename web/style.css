@@ -192,3 +192,23 @@ button.choice.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(
 button.choice.device { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
 button.choice.device > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 button.choice.device svg.transport { width: 24px; height: 24px; flex: none; fill: var(--muted); }
+/* The macro editor (editors.js macroEditor): a card per macro, its timeline and steps. */
+.macroedit { margin-top: 16px; }
+.macroedit > p { margin: 4px 0; }
+section.box.macro { margin: 8px 0; padding: 8px 10px; }
+section.box.macro > .actions { gap: 6px 10px; }
+section.box.macro input[type="text"] { font: inherit; width: 12em; padding: 2px 6px; border: 1px solid var(--line);
+  border-radius: 4px; background: var(--bg); color: var(--fg); }
+.macro .steps { margin: 6px 0; }
+.rule.step .grow { flex: 1; }
+.macro .actions.add { gap: 6px; margin-top: 6px; }
+.macro select, .macro input.ms { font: inherit; padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--bg); color: var(--fg); }
+.macro input.ms { width: 5.5em; }
+svg.macrograph { display: block; width: 100%; max-width: 520px; margin: 6px 0; }
+svg.macrograph .track { stroke: var(--line); stroke-width: .6; }
+svg.macrograph .bar { fill: var(--accent); }
+svg.macrograph .bar.open { fill: var(--accent); opacity: .45; }
+svg.macrograph .label { fill: var(--muted); font-size: 9px; }
+svg.macrograph .label.end { text-anchor: end; }
+.remap .actions .error { color: var(--error); }
