@@ -381,22 +381,35 @@ static __attribute__((noinline)) void hub_step(u32 now)   /* its frame is not ad
     }
 }
 
-/* Each second, each slot whose pad sent something, and the HCI receive
- * queue when it dropped packets. */
+/* Called each second: each slot whose pad sent something, once a
+ * minute or at once when it lost inputs (the log ring is short: a line a
+ * second left a minute of history), and the HCI receive queue when it
+ * dropped packets. */
+#define STATS_EVERY_S 60
 static __attribute__((noinline)) void log_stats(void)
 {
-    static struct link_stats last[HUB_SLOTS];
+    static struct link_stats last[HUB_SLOTS];  /* at the start of the period */
+    static u32 prev[HUB_SLOTS];                /* inputs a second ago */
+    static u8 secs[HUB_SLOTS];                 /* seconds with input in the period */
     static u32 last_dropped;    /* and held */
     struct link_stats ls;
     struct hci_queue_stats q;
     u32 i;
 
     for (i = 0; i < HUB_SLOTS; i++) {
+        int active;
+
         dongle_bt_stats((u8)i, &ls);
-        if (ls.inputs != last[i].inputs)
-            util_log("link %u: %u/s in, %u replaced, %u lost", i, ls.inputs - last[i].inputs,
+        active = ls.inputs != prev[i];
+        prev[i] = ls.inputs;
+        if (active) secs[i]++;
+        if (secs[i] && (!active || secs[i] >= STATS_EVERY_S || ls.lost != last[i].lost)) {
+            util_log("link %u: %u/s in over %u s, %u replaced, %u lost", i,
+                     (ls.inputs - last[i].inputs) / secs[i], secs[i],
                      ls.replaced - last[i].replaced, ls.lost - last[i].lost);
-        last[i] = ls;
+            secs[i] = 0;
+        }
+        if (!secs[i]) last[i] = ls;
     }
     hci_jieli_rx_stats(&q);
     if ((u32)(q.dropped_events + q.dropped_acl + q.held_acl) != last_dropped) {
