@@ -753,6 +753,31 @@ static u32 hook(struct usb_device_t *dev, struct usb_ctrlrequest *req)
 
 /* ---- the interface ---------------------------------------------------------- */
 
+/* The SDK's EP0 handler (usb_control_transfer, prebuilt) clears a SentStall
+ * and returns without looking at RxPktRdy.  A host sends its next SETUP at
+ * once after a stall (Linux asks for the device qualifier three times, each
+ * stalled, then for the configuration), and one that arrives before this
+ * interrupt runs waits with no interrupt of its own: the host times out
+ * after 5 s and the enumeration takes that much longer or starts over (one
+ * personality change in seven on the dongle).  Serve that SETUP here. */
+void usb_isr(const usb_dev usb_id);
+
+___interrupt
+static void usb_isr_ep0(void)
+{
+    u32 before = usb_read_csr0(0);
+
+    usb_isr(0);
+    if ((before & CSR0P_SentStall) && (usb_read_csr0(0) & CSR0P_RxPktRdy))
+        usb_control_transfer(usb_id2device(0));
+}
+
+/* usb_device_mode registers the SDK's interrupt: ours instead, same level. */
+static void own_isr(void)
+{
+    request_irq(IRQ_USB_CTRL_IDX, 3, usb_isr_ep0, 0);
+}
+
 static void start(const struct usb_identity *id,
                   int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max))
 {
@@ -784,6 +809,7 @@ static void start(const struct usb_identity *id,
     bulk.size = PACKET;
     ident = id;
     usb_device_mode(0, 0x80000000);      /* no SDK class: the core and its EP0 only */
+    own_isr();
     dma_in = usb_alloc_ep_dmabuffer(0, EP_IN | USB_DIR_IN, PACKET);
     dma_out = id->out_size ? usb_alloc_ep_dmabuffer(0, out_ep, PACKET) : NULL;
     if (id->kind == USB_HID_BULK) {
@@ -1193,6 +1219,7 @@ void plat_usb_tool_mode(void)
     }
     tool_pending = tool_busy = tool_sending = tool_in_busy = tool_refusals = 0;
     usb_device_mode(0, 0x80000000);      /* no SDK class: the core and its EP0 only */
+    own_isr();
     dma_in = usb_alloc_ep_dmabuffer(0, EP_IN | USB_DIR_IN, PACKET);
     usb_set_reset_hander(0, 0, tool_reset);
     usb_set_setup_hook(usb_id2device(0), tool_hook);
