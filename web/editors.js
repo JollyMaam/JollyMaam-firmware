@@ -327,7 +327,6 @@ export function macroEditor(io) {
   const add = h("button", { type: "button", class: "small" }, "Add macro");
   const reset = h("button", { type: "button", class: "small" }, io.base ? "Macros to default" : "Use the base's");
   const head = h("div", { class: "actions" }, h("strong", {}, "Macros"), used, add, reset);
-  const note = h("p", { class: "muted" });
   const problem = h("p", { class: "error", hidden: true });
   const savedText = io.saved ? showMacros(io.saved) : null;
 
@@ -379,10 +378,10 @@ export function macroEditor(io) {
     add.disabled = macros.length >= MACROS;
     head.classList.toggle("changed", savedText !== null && savedText !== io.input.value.trim());
     reset.hidden = io.base ? !io.defaults || showMacros(io.defaults) === io.input.value.trim() : io.inherited && !head.classList.contains("changed");
-    note.textContent = io.inherited && !head.classList.contains("changed")
-      ? "None of its own: this remap plays the base remap's macros. Changing them here makes them its own."
-      : io.base ? "Every remap slot without macros of its own plays these." : "";
-    note.hidden = !note.textContent;
+    // A remap slot with none of its own plays the base's: each says so
+    // until an edit makes them this slot's.
+    const inherited = io.inherited && !head.classList.contains("changed");
+    for (const tag of list.querySelectorAll(".frombase")) tag.hidden = !inherited;
   }
 
   const keyOptions = () => KEY_ORDER.map((k) => [k, keyLabel(io.layout, k)]);
@@ -443,6 +442,7 @@ export function macroEditor(io) {
     const { total } = timeline(m);
     return h("section", { class: "box macro" },
       h("div", { class: "actions" }, h("strong", {}, `Macro ${n + 1}`), name,
+        h("span", { class: "tag frombase", title: "the base remap's: editing makes the macros this remap's own" }, "from base"),
         h("span", { class: "muted" }, `${m.steps.length} step${m.steps.length === 1 ? "" : "s"}, ${total} ms`), up, del),
       macroGraph(m, io.layout),
       h("div", { class: "steps" }, m.steps.length ? m.steps.map((s, i) => stepRow(m, s, i))
@@ -466,9 +466,7 @@ export function macroEditor(io) {
   io.input.addEventListener("input", reload);
   io.input.addEventListener("change", reload);
   draw();
-  return h("div", { class: "remap macroedit" }, head, note, problem, list,
-    h("p", { class: "muted" }, "A rule above plays a macro by number: once, again while its key is held, or looping until ",
-      "pressed again. While it plays, the keys it uses are its own. Waits go in 4 ms steps."));
+  return h("div", { class: "remap macroedit" }, head, problem, list);
 }
 
 // ---- curves -----------------------------------------------------------------
