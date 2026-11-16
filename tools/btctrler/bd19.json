@@ -832,6 +832,14 @@
       "sources": [
         "src/btctrler/bd19/bredr_frame.c"
       ]
+    },
+    {
+      "member": "bredr_link.c.o",
+      "occurrence": 1,
+      "sha256": "a83574c31fe325b3020760e9e062d767c987703694cd8f4d35cfe3087c93e466",
+      "sources": [
+        "src/btctrler/bd19/bredr_link.c"
+      ]
     }
   ]
 }
