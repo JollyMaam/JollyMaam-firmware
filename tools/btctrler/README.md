@@ -42,6 +42,16 @@ python3 tools/btctrler/check_bredr_frame.py --clang /path/to/host/clang   # Clas
 python3 tools/btctrler/check_bredr_frame_ir.py --clang /path/to/host/clang # Actual 32-bit target LLVM traces vs SDK LLVM
 ```
 
+Per-function check of owned C against one original member (exact canonical
+IR equality, or a renumbered diff for triage); build the `-Os` analysis
+object because the SDK archive was compiled with `-Os`:
+
+```
+PATH=/work/bin:$PATH make build/vanilla-bd19-os/src/btctrler/bd19/FILE.o
+python3 tools/btctrler/funccmp.py build/controller-ir/bd19/01--MEMBER.ll \
+  build/vanilla-bd19-os/src/btctrler/bd19/FILE.o [FUNCTION...] [-d]
+```
+
 Original IR and inventories: `build/controller-ir/{br23,bd19}/`.
 Files use `OCCURRENCE--MEMBER.ll`; BD19 has TWO `tws_pair.c.o` members.
 Inspection pins archive hashes and keys its decode cache by target, decoder,

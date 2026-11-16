@@ -731,6 +731,14 @@
     },
     {
       "member": "tws_pair.c.o",
+      "occurrence": 1,
+      "sha256": "7b63d3372555311e3c6d10447e45b12a86bbe42386fabd1b359842adf562fee6",
+      "sources": [
+        "src/btctrler/bd19/tws_pair.c"
+      ]
+    },
+    {
+      "member": "tws_pair.c.o",
       "occurrence": 2,
       "sha256": "65c6a1e91c93144bf28cebd5dd16c7c07909316150deb2a7efd95552527f76f1",
       "sources": [

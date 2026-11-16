@@ -460,6 +460,9 @@ class Func:
             m = re.match(r'br i1 (\S+), label %([\w.]+), label %([\w.]+)', rhs)
             if m:
                 return f'if ({self.expr(m.group(1))}) goto {m.group(2)}; else goto {m.group(3)}'
+            m = re.match(r'br i1 (.+), label %([\w.]+), label %([\w.]+)', rhs)
+            if m:  # constant-expression condition
+                return f'if ({m.group(1)}) goto {m.group(2)}; else goto {m.group(3)}'
             return 'goto ' + re.match(r'br label %([\w.]+)', rhs).group(1)
         if op == 'switch':
             return None   # handled in print_function

@@ -14,6 +14,11 @@ controller-objects: $(VANILLA_BD19_OBJECTS) $(VANILLA_BR23_OBJECTS)
 build/vanilla-bd19/%.o: %.c $(wildcard src/btctrler/*.h)
 	@mkdir -p $(@D)
 	$(VANILLA_Q32S) $(VANILLA_BD19_FLAGS) $(VANILLA_BD19_DEFINES) -Werror=implicit-function-declaration -iquote src -iquote src/sdkconfig $(VANILLA_BD19_INCLUDES) -c $< -o $@
+# -Os analysis objects: the SDK archive was built with -Os (optsize, no minsize),
+# so these inline like the original and suit tools/btctrler/funccmp.py.
+build/vanilla-bd19-os/%.o: %.c $(wildcard src/btctrler/*.h)
+	@mkdir -p $(@D)
+	$(VANILLA_Q32S) $(filter-out -Oz,$(VANILLA_BD19_FLAGS)) -Os $(VANILLA_BD19_DEFINES) -Werror=implicit-function-declaration -iquote src -iquote src/sdkconfig $(VANILLA_BD19_INCLUDES) -c $< -o $@
 build/vanilla-br23/%.o: %.c $(wildcard src/btctrler/*.h)
 	@mkdir -p $(@D)
 	$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) -Werror=implicit-function-declaration -iquote src -iquote src/sdkconfig $(SDK_INCLUDES) -c $< -o $@
