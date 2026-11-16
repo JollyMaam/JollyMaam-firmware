@@ -66,28 +66,37 @@ void plat_unlock(void)
 }
 
 /* ---- the stack ------------------------------------------------------------
- * The RAM between the end of .bss and the stack is painted at start-up; what
- * stays painted was never used.  The log says so when it shrinks. */
+ * b80.ld: the main stack is the RAM from the end of .bss (_ram_use_end_)
+ * up to the cache (_stack_top_); the IRQ's is irq_stk, its lowest word a
+ * guard (_irq_stk_guard_).  The main stack is painted at start-up: what stays painted was
+ * never used, and the log says so when it shrinks.  Its last word or the
+ * guard overwritten: an overflow, logged, and the chip resets. */
 
 #define PAINT 0x5a5a5a5au
 
-extern u32 _end_bss_[];
+extern u32 _ram_use_end_[], _irq_stk_guard_[];
 static u32 stack_low;            /* the least unused seen, bytes */
+static u32 stack_at;             /* now_ms of the next check */
 
 static void stack_paint(void)
 {
-    volatile u32 *p = (u32 *)(((u32)_end_bss_ + 3) & ~3u);
+    volatile u32 *p = _ram_use_end_;
     volatile u32 *sp = (u32 *)__builtin_frame_address(0);
 
     while (p < sp - 32) *p++ = PAINT;
+    *_irq_stk_guard_ = PAINT;
     stack_low = 0xffffffffu;
 }
 
 static void stack_check(void)
 {
-    const u32 *p = (const u32 *)(((u32)_end_bss_ + 3) & ~3u);
+    const u32 *p = _ram_use_end_;
     u32 n = 0;
 
+    if (p[0] != PAINT || *_irq_stk_guard_ != PAINT) {
+        util_log("stack: overflow (%s)", p[0] != PAINT ? "main" : "irq");
+        plat_reboot();
+    }
     while (p[n] == PAINT) n++;
     if (4 * n < stack_low) {
         stack_low = 4 * n;
@@ -129,7 +138,10 @@ u32 plat_wait(u32 deadline_ms, u32 at_us)
     for (;;) {
         wd_clear();
         plat_wake(plat_usb_poll() | board_poll(plat_bt_jit() != 0) | plat_bt_poll());
-        if ((now_ms & 0x3ff) == 0) stack_check();
+        if ((s32)(now_ms - stack_at) >= 0) {     /* now_ms can step past any one value */
+            stack_at = now_ms + 1024;
+            stack_check();
+        }
         e = take();
         if (e) return e;
         if (deadline_ms && (s32)(plat_ms() - deadline_ms) >= 0) return EV_DEADLINE;
@@ -424,7 +436,24 @@ _attribute_ram_code_ void irq_handler(void)
 }
 #endif
 
-int main(void)
+/* cstartup_flash.S starts main with the stack at the end of SRAM, where
+ * b80.ld puts the instruction cache: nothing has used it yet, so main only
+ * moves it below the cache (_stack_top_) and goes on in plat_main. */
+__asm__(".section .text.main,\"ax\",%progbits\n"
+        "\t.align 2\n\t.global main\n\t.code 16\n\t.tc32_func\n"
+        "\t.type main, %function\n"
+        "main:\n"
+        "\ttloadr r0, 1f\n"
+        "\ttmov r13, r0\n"
+        "\ttjl plat_main\n"
+        "2:\ttj 2b\n"
+        "\t.align 2\n"
+        "1:\t.word _stack_top_\n"
+        "\t.size main, .-main\n"
+        "\t.text\n");
+
+int plat_main(void);
+int __attribute__((used)) plat_main(void)
 {
 #ifdef UPDATER
     updater_boot();

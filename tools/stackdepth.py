@@ -4,11 +4,12 @@
     stackdepth.py [--tools DIR] [--show NAME]... ELF [RULE]...
 
 Each function's frame is what it pushes before its first branch plus its
-"tsub sp"; its
-callees are its tjl calls and its tail jumps into other functions.  The main
-thread starts at main and has the RAM from the end of .bss to the top of
-SRAM; interrupts start at __irq and have the SDK's irq_stk.  Prints the
-deepest path of each and what is left; exits 1 if either does not fit.
+"tsub sp"; its callees are its tjl calls and its tail jumps into other
+functions.  The main thread starts at main and has the RAM from the end of
+.bss to the cache (b80.ld's _ram_use_end_ to _stack_top_); interrupts
+start at __irq and have the SDK's irq_stk but its lowest word (the guard
+platform_telink.c checks).  Prints the deepest path of each and what is
+left; exits 1 if either does not fit.
 
 Pointer calls are not followed by themselves.  RULEs add and remove edges:
   f=g,h      f calls g and h (a pointer call); @sym is every function a
@@ -148,8 +149,9 @@ for name in args.show:
         print('%s %d: %s' % (f['name'], f['frame'], ', '.join('%s %d' % (n, d) for d, n in below)))
 
 fits = True
-end_bss, sram = symbols['_end_bss_'][0], symbols['__SRAM_SIZE'][0]
-for root, room in (('main', sram - end_bss), ('__irq', symbols['irq_stk'][1])):
+# b80.ld: the main stack is what is left between .bss and the cache.
+low, top = symbols['_ram_use_end_'][0], symbols['_stack_top_'][0]
+for root, room in (('main', top - low), ('__irq', symbols['irq_stk'][1] - 4)):
     used, path = depth(names[root][0])
     print('%s: %d of %d bytes, %d left' % (root, used, room, room - used))
     for step in path:

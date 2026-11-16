@@ -57,8 +57,7 @@ U2CW_DEFINES += -DPROF_RING=$(U2CW_PROFILE_RING) -DNO_DEEP_SLEEP
 endif
 U2CW_DEFINES += -DREMAPS_STORED=4
 U2CW_DEFINES += -DREMAP_RULES=8
-# The quick macro occupies padding before the instruction cache.
-U2CW_DEFINES += -DQUICK_MACRO_BYTES=144 -DQUICK_PADDING_BUFFER
+U2CW_DEFINES += -DQUICK_MACRO_BYTES=144
 U2CW_DEFINES += -DRECORD_MAX=152
 U2CW_DEFINES += -DREMAP_MACRO_BYTES=146
 # No RAM for the tool's PRESS (pad.h).
@@ -96,17 +95,12 @@ U2CW_UPDATER_SOURCES += src/platform/telink/rx_telink.c
 U2CW_UPDATER_SOURCES += src/core/utils.c
 U2CW_UPDATER_SOURCES += src/core/battery.c
 
-TARGETS += u2cw/updater/boot.link
-u2cw/updater/boot.link_type := telink-boot-link
-u2cw/updater/boot.link_deps := $(TELINK_SDK)/project/tlsr_tc32/B80/boot.link
-$(O)/u2cw/updater/boot.link: private telink_app_start := 0x6000
-
 TARGETS += u2cw/updater/app.elf
 u2cw/updater/app.elf_toolchain := TELINK_B80_
 u2cw/updater/app.elf_sources := $(U2CW_UPDATER_SOURCES) $(TELINK_SDK_SOURCES) $(TELINK_BTSTACK_SOURCES)
 u2cw/updater/app.elf_cppflags := $(U2CW_UPDATER_FLAGS)
-u2cw/updater/app.elf_ldflags := $(U2CW_LDFLAGS) -T $(O)/u2cw/updater/boot.link -Map $(O)/u2cw/updater/app.map
-u2cw/updater/app.elf_deps := $(O)/u2cw/updater/boot.link $(TELINK_ARCHIVES)
+u2cw/updater/app.elf_ldflags := $(U2CW_LDFLAGS) -T $(TELINK_B80_LD) --defsym=APP_START=0x6000 -Map $(O)/u2cw/updater/app.map
+u2cw/updater/app.elf_deps := $(TELINK_B80_LD) $(TELINK_ARCHIVES)
 u2cw/updater/app.elf_order_deps := $(BUILD_ID_H)
 
 $(call lib-objs,u2cw/updater/app.elf,$(U2CW_UPDATER_SOURCES)): obj_cppflags += $(U2CW_INCLUDES)
@@ -165,17 +159,12 @@ U2CW_PAD_SOURCES += src/core/usb.c
 U2CW_PAD_SOURCES += src/core/utils.c
 U2CW_PAD_SOURCES += src/core/battery.c
 
-TARGETS += u2cw/pad/boot.link
-u2cw/pad/boot.link_type := telink-boot-link
-u2cw/pad/boot.link_deps := $(TELINK_SDK)/project/tlsr_tc32/B80/boot.link
-$(O)/u2cw/pad/boot.link: private telink_app_start := 0x16120
-
 TARGETS += u2cw/pad/app.elf
 u2cw/pad/app.elf_toolchain := TELINK_B80_
 u2cw/pad/app.elf_sources := $(U2CW_PAD_SOURCES) $(TELINK_SDK_SOURCES) $(TELINK_BTSTACK_SOURCES)
 u2cw/pad/app.elf_cppflags := $(U2CW_PAD_FLAGS)
-u2cw/pad/app.elf_ldflags := $(U2CW_LDFLAGS) -T $(O)/u2cw/pad/boot.link -Map $(O)/u2cw/pad/app.map
-u2cw/pad/app.elf_deps := $(O)/u2cw/pad/boot.link $(TELINK_ARCHIVES)
+u2cw/pad/app.elf_ldflags := $(U2CW_LDFLAGS) -T $(TELINK_B80_LD) --defsym=APP_START=0x16120 -Map $(O)/u2cw/pad/app.map
+u2cw/pad/app.elf_deps := $(TELINK_B80_LD) $(TELINK_ARCHIVES)
 u2cw/pad/app.elf_order_deps := $(BUILD_ID_H)
 $(call lib-objs,u2cw/pad/app.elf,$(U2CW_PAD_SOURCES)): obj_cppflags += $(U2CW_INCLUDES)
 $(call lib-objs,u2cw/pad/app.elf,$(U2CW_PAD_SOURCES)): obj_cflags += $(TELINK_CFLAGS)

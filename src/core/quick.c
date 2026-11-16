@@ -57,11 +57,7 @@ static struct {
 } q;
 
 #ifndef QUICK_LENT_BUFFER
-#ifdef QUICK_PADDING_BUFFER
-static u8 own[QUICK_MACRO_BYTES] __attribute__((section(".quick_padding"), aligned(4))) = {0};
-#else
 static u8 own[QUICK_MACRO_BYTES];
-#endif
 #endif
 
 static int take_buffer(void)

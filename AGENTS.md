@@ -238,7 +238,11 @@ wrong assumption), add it here in a line or two.
   its address escapes into a call or an asm input.
 - Never build the Telink board with `-Os`: the compiler miscompiles switch
   tables.
-- The 8BitDo's stack has under 100 bytes to spare.  A function's frame holds
+- The 8BitDo's main stack is all the RAM that RAM code, .data and .bss leave
+  (`src/platform/telink/b80.ld`: the cache sits at the end of SRAM, nothing
+  is padded): each byte added there is one byte of stack less, and the stack
+  has about 150 bytes to spare.  An overflow found at run time is logged and
+  resets the chip.  A function's frame holds
   the locals of all its branches, so a big array in one `case` costs every
   case (a 192-byte one in `usb_command` overflowed into .bss).  Keep it in a
   `noinline` helper; `make u2cw/pad-stackcheck` checks (part of `make u2cw-test`).
