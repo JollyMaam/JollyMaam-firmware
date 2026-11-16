@@ -96,12 +96,15 @@ TELINK_SRC_INCLUDES := $(subst -iquote src/platform/jieli,,$(SRC_INCLUDES)) -iqu
 # and the step that stops the flash (sleep_start) stays in RAM.  Flash code
 # and constants link at the app's offset, their image offsets stay relative
 # to its start. Keep an alias to the SDK connection validator before its
-# symbol is redirected to the app's Switch 2 interval shim.
+# symbol is redirected to the app's Switch 2 interval shim. The quick
+# macro is loaded with .data into its trailing cache-alignment padding;
+# the assertion prevents it from moving the cache to the next boundary.
 define lib-type-telink-boot-link
 sed
 -e 's/\. = _start_text_;/. = _start_text_ + $(telink_app_start);/'
 -e 's/\*(.text)/sdk_ll_procConnectReq = .; KEEP(*(.text.blc_ll_procConnectReq)) sdk_ll_push_tx_fifo = .; KEEP(*(.text.bls_ll_pushTxFifo)) *(.text) *liblt_8208*.a:genfsk_ll.o(.ram_code) *liblt_8208*.a:ext_pm_32k_rc*.o(.ram_code)/'
 -e 's/^\( *\)\*(\.ram_code)$$/\1*(EXCLUDE_FILE(*liblt_8208*.a:genfsk_ll.o *liblt_8208*.a:ext_pm_32k_rc*.o) .ram_code)/'
+-e 's/PROVIDE(_end_data_ = . );/_quick_padding_start = .; _quick_padding_limit = ALIGN(256); *(.quick_padding) ASSERT(. <= _quick_padding_limit, "quick macro exceeds cache alignment padding"); PROVIDE(_end_data_ = . );/'
 -e 's/PROVIDE(_code_size_ = \.);/PROVIDE(_code_size_ = . - $(telink_app_start));/'
 -e 's/AT ( _rstored_ )/AT ( _rstored_ - $(telink_app_start) )/'
 -e 's/AT ( _sstored_ )/AT ( _sstored_ - $(telink_app_start) )/'

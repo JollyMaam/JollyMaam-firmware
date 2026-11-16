@@ -97,3 +97,28 @@ test("macros: steps and their waits, what the firmware refuses", () => {
   assert.throws(() => remap.parseRules("l4 pressed play_macro 9"), remap.RemapError);
   assert.throws(() => remap.parseRules("l4 held play_macro 1"), remap.RemapError);
 });
+
+test("a full u2cw QS recording fits an empty flash slot without a name", () => {
+  const raw = new Uint8Array(146);
+  raw[0] = 145;
+  for (let i = 2; i < raw.length; i += 4) {
+    raw[i] = 0; raw[i + 1] = 0x20;
+    raw[i + 2] = 10; raw[i + 3] = 0;
+  }
+  const macros = remap.decodeMacros(raw);
+  assert.deepEqual(remap.encodeMacros(macros, 146), raw);
+  assert.throws(() => remap.encodeMacros([...macros, ...macros], 146), /pad has/);
+  macros[0].name = "x";
+  assert.throws(() => remap.encodeMacros(macros, 146), /pad has/);
+});
+
+test("empty macro cards do not change the saved setting", async () => {
+  const { macroDraftText } = await import("../editors.js");
+  const empty = { name: "", steps: [] };
+  const recorded = { name: "tap", steps: [{ms: 0, key: "south", press: true}, {ms: 40, key: "south", press: false}] };
+  assert.equal(macroDraftText([empty]), "none");
+  assert.equal(macroDraftText([empty, {...empty, name: "draft"}]), "none");
+  assert.equal(macroDraftText([recorded, empty]), macroDraftText([recorded]));
+  assert.equal(macroDraftText([{...recorded, steps: [], draft: "  "}]), "none");
+  assert.equal(macroDraftText([{...empty, draft: "bad input"}]), ": bad input");
+});

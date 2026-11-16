@@ -97,6 +97,7 @@ enum jm_command_id {
   JM_CMD_PROBE = 0x1c,
   JM_CMD_CONFIG = 0x1d,
   JM_CMD_PRESS = 0x1e,
+  JM_CMD_QUICK_MACRO = 0x1f,
   JM_CMD_FIELD = 0x20,
   JM_CMD_READ = 0x21,
   JM_CMD_WRITE = 0x22,

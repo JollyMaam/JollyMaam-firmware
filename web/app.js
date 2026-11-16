@@ -308,6 +308,7 @@ function targetSection(t, open) {
       input: mrow.input, field: mfield, saved: m.value, defaults: defaults.get(mt)?.get("macros")?.value,
       inherited: !m.set, base: t === BASE_TARGET, layout,
       changed: () => keys?.redraw(), reset: () => mrow.reset.click(),
+      quickMacro: () => pad.quickMacro(),
     });
   }
   // The rest, then a box per stick and trigger (padgui's grouping), then

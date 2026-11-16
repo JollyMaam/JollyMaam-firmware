@@ -213,3 +213,22 @@ svg.macrograph .label { fill: var(--muted); font-size: 9px; }
 svg.macrograph .label.end { text-anchor: end; }
 .remap .actions .error { color: var(--error); }
 .tag { font-size: 12px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+
+/* Macro notation stays copyable and wraps even on narrow phone screens. */
+.macrotext {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 8px;
+  margin: 6px 0;
+  font: 0.9rem monospace;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  resize: vertical;
+}

@@ -423,7 +423,7 @@ static void start_config(u32 now)
     c.begin_imu = c.prof->begin(&s);
     c.sess = s;
     c.retry_at = 0;
-    quick_clear();
+    quick_stop(now);             /* keep the completed recording for the tools */
     c.config = 1;
     if (c.radio) c.radio_pending = 1;
     else radio_on();

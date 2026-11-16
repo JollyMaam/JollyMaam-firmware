@@ -320,6 +320,22 @@ function macroGraph(m, layout) {
 // (padtool's text, which this writes), field (its size), saved and
 // defaults (raw), inherited (none of its own: the base's are shown), base
 // (this is the base's), layout, changed() after an edit, reset().
+// The same copyable notation for a recording and an editable macro list.
+function macroText(value, label, readonly = false) {
+  const box = h("textarea", { class: "macrotext", rows: 4, wrap: "soft", spellcheck: "false",
+    "aria-label": label, readonly });
+  box.value = value;
+  return box;
+}
+
+const macroStepText = (m) => m.draft ?? m.steps.map((s) =>
+  [s.ms ? String(s.ms) : null, s.key ? (s.press ? "+" : "-") + s.key : null]
+    .filter(Boolean).join(" ")).join(" ");
+
+// Empty cards are local drafts, not flash macros. Names alone need no record.
+export const macroDraftText = (macros) => macros.filter((m) => macroStepText(m).trim())
+  .map((m) => `${m.name}: ${macroStepText(m)}`).join("; ") || "none";
+
 export function macroEditor(io) {
   let macros = [], writing = false;
   const list = h("div", { class: "macros" });
@@ -333,6 +349,7 @@ export function macroEditor(io) {
   const load = () => {
     try {
       macros = decodeMacros(parseMacros(io.input.value, ROOM));
+      if (!macros.length) macros.push({ name: "", steps: [] });
       problem.hidden = true;
       return true;
     } catch (error) {
@@ -342,29 +359,23 @@ export function macroEditor(io) {
     }
   };
 
-  // The model into the text input; one the pad would refuse (too long)
-  // stays as text, so the count says what is wrong.
+  const stepText = macroStepText;
+
+  // Keep empty cards locally; only macros with steps enter the saved setting.
   const write = () => {
     writing = true;
-    try {
-      let text;
-      try {
-        text = showMacros(encodeMacros(macros, io.field.size));
-      } catch {
-        text = showMacros(encodeMacros(macros, ROOM));
-      }
-      setControl(io.input, text);
-    } catch (error) {
-      problem.textContent = error.message;
-      problem.hidden = false;
-    } finally {
-      writing = false;
-    }
+    setControl(io.input, macroDraftText(macros));
+    writing = false;
+    problem.hidden = true;
+    try { parseMacros(io.input.value, io.field.size); }
+    catch (error) { problem.textContent = error.message; problem.hidden = false; }
     io.changed?.();
   };
 
   const change = (fn, redraw = true) => {
+    const before = new Map(macros.map((m) => [m, JSON.stringify(m.steps)]));
     fn();
+    for (const m of macros) if (before.get(m) !== JSON.stringify(m.steps)) delete m.draft;
     write();
     if (redraw) draw();
     else counts();
@@ -372,7 +383,7 @@ export function macroEditor(io) {
 
   function counts() {
     let n = null;
-    try { n = macrosLength(macros); } catch { /* a step the pad would refuse: its error shows */ }
+    try { n = macrosLength(macros.filter((m) => stepText(m).trim())); } catch { /* a step the pad would refuse: its error shows */ }
     used.textContent = `${macros.length}/${MACROS} · ${n ?? "?"} of ${io.field.size} bytes`;
     used.classList.toggle("error", n !== null && n > io.field.size);
     add.disabled = macros.length >= MACROS;
@@ -418,9 +429,32 @@ export function macroEditor(io) {
       if (v !== name.value) name.value = v;
       change(() => { m.name = v; }, false);
     });
+    const text = macroText(stepText(m), `Macro ${n + 1} text`);
+    text.placeholder = "+south 40 -south";
+    text.addEventListener("input", () => {
+      m.draft = text.value;
+      try {
+        m.steps = text.value.trim() ? decodeMacros(parseMacros(`${m.name}: ${text.value}`, ROOM))[0].steps : [];
+        text.setCustomValidity("");
+      } catch (error) { text.setCustomValidity(error.message); }
+      write(); counts();
+    });
+    text.addEventListener("change", () => { if (text.checkValidity()) draw(); });
+    const take = h("button", { type: "button", class: "small", hidden: !io.quickMacro }, "Import from Quick Settings");
+    take.addEventListener("click", async () => {
+      take.disabled = true;
+      try {
+        const q = await io.quickMacro();
+        if (!q) throw new Error("No completed quick-settings macro.");
+        if (!macros.includes(m)) return;
+        const raw = new Uint8Array(q.steps.length + 2);
+        raw[0] = q.steps.length + 1; raw.set(q.steps, 2);
+        change(() => { m.steps = decodeMacros(raw)[0].steps; delete m.draft; });
+      } catch (error) { problem.textContent = error.message; problem.hidden = false; }
+      finally { take.disabled = false; }
+    });
     const del = h("button", { type: "button", class: "small", title: "delete this macro (rules playing a later one then play the one before it)" }, "Delete");
     del.addEventListener("click", () => {
-      if (m.steps.length && !confirm(`Delete macro ${n + 1}${m.name ? ` "${m.name}"` : ""}?`)) return;
       change(() => { macros.splice(n, 1); });
     });
     const up = h("button", { type: "button", class: "small", title: "make it the macro before (rules play by number)", disabled: !n }, "↑");
@@ -443,7 +477,8 @@ export function macroEditor(io) {
     return h("section", { class: "box macro" },
       h("div", { class: "actions" }, h("strong", {}, `Macro ${n + 1}`), name,
         h("span", { class: "tag frombase", title: "the base remap's: editing makes the macros this remap's own" }, "from base"),
-        h("span", { class: "muted" }, `${m.steps.length} step${m.steps.length === 1 ? "" : "s"}, ${total} ms`), up, del),
+        h("span", { class: "muted" }, `${m.steps.length} step${m.steps.length === 1 ? "" : "s"}, ${total} ms`), up, del, take),
+      h("label", {}, "Macro text (waits in milliseconds)", text),
       macroGraph(m, io.layout),
       h("div", { class: "steps" }, m.steps.length ? m.steps.map((s, i) => stepRow(m, s, i))
         : h("p", { class: "muted" }, "No steps yet: add a tap below.")),
@@ -453,18 +488,23 @@ export function macroEditor(io) {
   }
 
   function draw() {
-    if (!load()) return list.replaceChildren(), counts();
     list.replaceChildren(...macros.map(macroCard));
     counts();
   }
 
   add.addEventListener("click", () => change(() => {
-    macros.push({ name: `Macro ${macros.length + 1}`, steps: [{ ms: 0, key: "south", press: true }, { ms: TAP_MS, key: "south", press: false }] });
+    macros.push({ name: "", steps: [] });
   }));
   reset.addEventListener("click", () => io.reset());
-  const reload = () => { if (!writing) draw(); };
+  const reload = () => {
+    if (!writing) {
+      if (load()) draw();
+      io.changed?.();
+    }
+  };
   io.input.addEventListener("input", reload);
   io.input.addEventListener("change", reload);
+  load();
   draw();
   return h("div", { class: "remap macroedit" }, head, problem, list);
 }

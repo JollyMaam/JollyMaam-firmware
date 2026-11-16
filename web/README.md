@@ -56,3 +56,14 @@ python3 -m http.server -d web 8000     # then http://localhost:8000
 ```
 
 `make web-test` runs `pad.js` against a simulated pad (`test/`), in node.
+
+Each macro card has its own wrapped text box for steps, with its name in
+its own field. Buttons update the step text; typing edits the same steps.
+New macros start empty, and deleting the last step keeps the empty card.
+Empty cards are local drafts and do not count as changes to save. Invalid
+step text must be corrected before saving.
+**Import from quick settings** replaces that card's steps with the completed
+QS recording, retained when entering configuration mode. **Save** writes the
+edited macros. Add a remap rule to choose how a saved macro plays (once,
+while held, or looping). A full 144-byte U2CW recording needs an empty
+146-byte macro field and leaves no space for a name.

@@ -57,8 +57,8 @@ U2CW_DEFINES += -DPROF_RING=$(U2CW_PROFILE_RING) -DNO_DEEP_SLEEP
 endif
 U2CW_DEFINES += -DREMAPS_STORED=4
 U2CW_DEFINES += -DREMAP_RULES=8
-# A quick settings macro holds the tool device's buffer (its commands are refused meanwhile).
-U2CW_DEFINES += -DQUICK_LENT_BUFFER
+# The quick macro occupies padding before the instruction cache.
+U2CW_DEFINES += -DQUICK_MACRO_BYTES=144 -DQUICK_PADDING_BUFFER
 U2CW_DEFINES += -DRECORD_MAX=152
 U2CW_DEFINES += -DREMAP_MACRO_BYTES=146
 # No RAM for the tool's PRESS (pad.h).

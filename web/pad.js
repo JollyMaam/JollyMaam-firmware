@@ -17,7 +17,7 @@ const CONFIG_FRAME_DATA = 96 - FRAME_HEAD;   // BT_WRITE_MAX less the head
 const CONFIG_DATA_MAX = 488;     // IDENTIFY's u16 at 88 from firmware that has it
 
 export const CMD = {
-  IDENTIFY: 0x00, STATUS: 0x01, LAYOUT: 0x06, REBOOT: 0x10, READ: 0x21, WRITE: 0x22, COMMIT: 0x23, DROP: 0x24, RESULT: 0x26, DEFAULTS: 0x27,
+  QUICK_MACRO: 0x1f, IDENTIFY: 0x00, STATUS: 0x01, LAYOUT: 0x06, REBOOT: 0x10, READ: 0x21, WRITE: 0x22, COMMIT: 0x23, DROP: 0x24, RESULT: 0x26, DEFAULTS: 0x27,
   FIELDS: 0x28, UPDATER: 0x40, UPDATE_INFO: 0x41, UPDATE_BEGIN: 0x42, UPDATE_DATA: 0x43, UPDATE_COMMIT: 0x44,
 };
 
@@ -45,7 +45,7 @@ export const PALETTE_TARGET = 8, CALIBRATION_TARGET = 9, PALETTE = 16;
 // Over USB a command asks for its answer's size (the pad zero-pads to
 // it): padtool's sizes; the rest have none.
 const USB_ANSWER = {
-  [CMD.IDENTIFY]: 88, [CMD.STATUS]: 16, [CMD.LAYOUT]: 4 + 12 * 20, [CMD.READ]: 512, [CMD.DEFAULTS]: 512,
+  [CMD.QUICK_MACRO]: 64, [CMD.IDENTIFY]: 88, [CMD.STATUS]: 16, [CMD.LAYOUT]: 4 + 12 * 20, [CMD.READ]: 512, [CMD.DEFAULTS]: 512,
   [CMD.FIELDS]: 512, [CMD.RESULT]: 256, [CMD.UPDATE_INFO]: 32,
 };
 
@@ -461,6 +461,26 @@ export class Pad {
       if (!got) return out.length ? out : null;
       out.push(...got.entries);
       if (!got.entries.length || out.length >= got.count) return out;
+    }
+  }
+
+  async quickMacro() {
+    let steps = null, key, loop;
+    for (let offset = 0;;) {
+      const b = await this.cmd(CMD.QUICK_MACRO, { arg: offset });
+      if (b.length < 4 || b[0] !== 1) throw new Error("This firmware cannot read quick-settings macros.");
+      if (!offset) {
+        if (!b[3]) return null;
+        if (b[3] & 1) throw new Error("Invalid quick-settings macro length.");
+        steps = new Uint8Array(b[3]); key = b[1]; loop = !!b[2];
+      } else if (b[3] !== steps.length || b[1] !== key || !!b[2] !== loop) {
+        throw new Error("The quick-settings macro changed; read it again.");
+      }
+      const n = Math.min(b.length - 4, steps.length - offset);
+      if (!n) throw new Error("Incomplete quick-settings macro.");
+      steps.set(b.subarray(4, 4 + n), offset);
+      offset += n;
+      if (offset === steps.length) return { key: key - 1, loop, steps };
     }
   }
 

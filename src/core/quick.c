@@ -57,7 +57,11 @@ static struct {
 } q;
 
 #ifndef QUICK_LENT_BUFFER
+#ifdef QUICK_PADDING_BUFFER
+static u8 own[QUICK_MACRO_BYTES] __attribute__((section(".quick_padding"), aligned(4))) = {0};
+#else
 static u8 own[QUICK_MACRO_BYTES];
+#endif
 #endif
 
 static int take_buffer(void)
@@ -378,6 +382,26 @@ void quick_stop(u32 now)
     q.prev = 0;
 }
 
+/* A bounded snapshot: version, trigger (IN_* + 1), loop, total step bytes,
+ * then steps from offset. Recording is not a completed macro. */
+u32 quick_read(u32 offset, u8 *out, u32 max)
+{
+    u32 n = 0;
+    u8 len = q.mode != RECORDING && q.buf && keys.macro ? q.len : 0;
+
+    if (max < 4) return 0;
+    out[0] = 1;
+    out[1] = len ? keys.macro : 0;
+    out[2] = len ? q.loop : 0;
+    out[3] = len;
+    if (offset < len) {
+        n = len - offset;
+        if (n > max - 4) n = max - 4;
+        memcpy(out + 4, q.buf + offset, n);
+    }
+    return 4 + n;
+}
+
 u32 quick_deadline(void)
 {
     if (q.mode == PLAYING) return q.at ? q.at : 1;
@@ -601,6 +625,30 @@ int main(void)
 #ifdef QUICK_LENT_BUFFER
     lend_ok = 0; quick_record(IN_L3, 0, now); CHECK(!quick_recording() && q.signal == SIG_DISCARDED);
 #endif
+    /* Config entry stops playback without losing the completed recording.
+     * Bounded reads can reconstruct it; an unfinished recording is hidden. */
+    {
+        u8 b[8], saved[QUICK_MACRO_BYTES];
+        u32 o, n;
+        quick_clear();
+        quick_record(IN_L3, 1, now);
+        CHECK(quick_read(0, b, sizeof(b)) == 4 && !b[3]);
+        rec(PAD_SOUTH, 60); rec(0, 60); rec(PAD_EAST, 60); rec(0, 60); rec(PAD_M, 1);
+        CHECK(q.len && keys.macro == IN_L3 + 1);
+        memcpy(saved, q.buf, q.len);
+        quick_stop(now);
+        for (o = 0; o < q.len; o += n - 4) {
+            n = quick_read(o, b, sizeof(b));
+            CHECK(n > 4 && n <= sizeof(b));
+            CHECK(b[0] == 1 && b[1] == IN_L3 + 1 && b[2] == 1 && b[3] == q.len);
+            CHECK(!memcmp(b + 4, saved + o, n - 4));
+            if (n <= 4) break;
+        }
+        CHECK(quick_read(q.len, b, sizeof(b)) == 4);
+        CHECK(quick_read(0, b, 3) == 0);
+        quick_clear();
+        CHECK(quick_read(0, b, sizeof(b)) == 4 && !b[1] && !b[2] && !b[3]);
+    }
     return TEST_DONE("quick");
 }
 #endif

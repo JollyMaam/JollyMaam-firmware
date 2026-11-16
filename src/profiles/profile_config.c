@@ -74,7 +74,7 @@
 #define CDB               16     /* buf: the CDB, then the data or the answer */
 
 static u8 *buf;
-static struct {
+struct config_state {
     u16 room;                    /* of buf, after the CDB */
     u16 held;                    /* bytes of data collected; CONFIG_OVER: dropped */
     u16 answer, off;             /* the answer's length; how much of it is out */
@@ -86,7 +86,9 @@ static struct {
     u32 last_ms;                 /* its last frame */
     u32 refused[CONFIG_REFUSALS];   /* tags to tell "send it again" */
     u8 refusals;
-} cf;
+};
+_Static_assert(sizeof(struct config_state) <= PROFILE_RAM, "config state");
+#define cf PROFILE_STATE(struct config_state)
 
 #ifdef CONFIG_LENT_BUFFER
 static int take(void)

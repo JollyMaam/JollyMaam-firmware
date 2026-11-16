@@ -69,6 +69,9 @@
  *                         while connected the keys are held that long, after
  *                         the Home gestures and before the remap (a new PRESS
  *                         replaces it; 0 ms lets go)
+ *   `0x1f` QUICK_MACRO    pad only: bytes 2–5: step-byte offset; in: version 1,
+ *                         trigger + 1, loop, total step bytes, then steps
+ *                         from offset. No completed macro: trigger/loop/length 0.
  *   `0x30` TARGET         dongle only: CDB bytes 2–7: Bluetooth address in
  *                         written order (AA:BB:CC:DD:EE:FF); page that device
  *   `0x31` TOOL_ONLY      dongle only: CDB byte 2: 0 off, 1 on (until power
@@ -196,6 +199,10 @@ u32 usb_command(const u8 cdb[16], u8 *data, u32 max, int from_host)
         return 0;
     }
     switch (cdb[1]) {
+#if !defined(BOARD_DONGLE) && !defined(NO_SETTINGS)
+    case JM_CMD_QUICK_MACRO:
+        return quick_read(util_get32(cdb + 2), data, max);
+#endif
     case JM_CMD_IDENTIFY: {
         const u8 *uid = plat_unique_id();
 
@@ -495,6 +502,7 @@ const struct board_control board_layout[] = {
 };
 const u8 board_layout_count = LAYOUT_COUNT(board_layout);
 #endif
+u32 quick_read(u32 offset, u8 *out, u32 max) { (void)offset; (void)out; (void)max; return 0; }
 const u8 *plat_unique_id(void) { return uid; }
 void plat_usb_service(void) {}
 void plat_prof_start(u16 hz, u32 zoom, u8 shift) { (void)hz; (void)zoom; (void)shift; }

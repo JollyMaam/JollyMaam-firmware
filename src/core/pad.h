@@ -881,7 +881,8 @@ u32 macro_deadline(void);
 /* ---- quick.c ------------------------------------------------------------ */
 
 /* Quick settings' layer: turbo steps, mappings and the pad's one macro, in
- * RAM.  quick_clear: a new slot, a disconnect, sleep, config mode, M held.
+ * RAM.  quick_clear: a new slot, a disconnect, sleep, M held.
+ * Config mode stops playback but keeps the completed recording for quick_read.
  * While connected and the remap runs: quick_recording() ? quick_record_step
  * (the remap suspended) : remap_step then quick_play; otherwise quick_stop.
  * The LEDs show quick_led's Home (LED_SIGNAL_*) over the scene. */
@@ -896,6 +897,8 @@ int quick_recording(void);
 u32 quick_record_step(u32 in, u32 now);     /* the host's buttons while recording */
 u32 quick_play(u32 in, u32 out, u32 now, u32 *every_report);  /* in: as ux_step left them; out: the remap's */
 void quick_stop(u32 now);
+/* Completed recording: version 1, trigger + 1, loop, length, then steps from offset. */
+u32 quick_read(u32 offset, u8 *out, u32 max);
 u32 quick_deadline(void);
 void quick_signal(u8 sig, u32 now);
 u8 quick_led(u32 now, u32 *next, u32 held);   /* held: quick settings' keys held (a turbo's rate) */

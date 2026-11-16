@@ -281,7 +281,7 @@ static __attribute__((noinline)) void start_config(void)
 {
     c.sleeping = 0;
     c.idle = 0;
-    quick_clear();               /* config mode borrows the buffer a macro may hold */
+    quick_stop(plat_ms());        /* keep the completed recording for the tools */
     c.config = 1;
     c.slot = SLOT_NONE;
     c.since_ms = plat_ms();

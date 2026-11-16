@@ -333,3 +333,22 @@ test("a command nothing comes of (it or its refusal lost) goes again", async () 
   assert.equal((await pad.status()).state, "connected");
   assert.ok(Date.now() - t0 >= 450, "after the silence");
 });
+
+test("quick macro reads bounded chunks, including USB padding", async () => {
+  const steps = Uint8Array.from({length: 144}, (_, i) => i);
+  const offsets = [];
+  const fake = { async cmd(sub, {arg}) {
+    assert.equal(sub, 0x1f); offsets.push(arg);
+    const b = new Uint8Array(64);
+    b.set([1, 12, 1, steps.length]); b.set(steps.subarray(arg, arg + 60), 4);
+    return b;
+  }};
+  const q = await Pad.prototype.quickMacro.call(fake);
+  assert.deepEqual(offsets, [0, 60, 120]);
+  assert.deepEqual(q, {key: 11, loop: true, steps});
+});
+test("quick macro reports none, unsupported, and incomplete replies", async () => {
+  assert.equal(await Pad.prototype.quickMacro.call({cmd: async () => Uint8Array.of(1,0,0,0)}), null);
+  await assert.rejects(Pad.prototype.quickMacro.call({cmd: async () => new Uint8Array(64)}), /cannot read/);
+  await assert.rejects(Pad.prototype.quickMacro.call({cmd: async () => Uint8Array.of(1,1,0,4)}), /Incomplete/);
+});
