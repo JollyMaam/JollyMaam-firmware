@@ -19,6 +19,9 @@ build/vanilla-bd19/%.o: %.c $(wildcard src/btctrler/*.h)
 build/vanilla-bd19-os/%.o: %.c $(wildcard src/btctrler/*.h)
 	@mkdir -p $(@D)
 	$(VANILLA_Q32S) $(filter-out -Oz,$(VANILLA_BD19_FLAGS)) -Os $(VANILLA_BD19_DEFINES) -Werror=implicit-function-declaration -iquote src -iquote src/sdkconfig $(VANILLA_BD19_INCLUDES) -c $< -o $@
+# BD19 lmp.c.o is one translation unit that #includes its part files.
+build/vanilla-bd19/src/btctrler/bd19/lmp/lmp.o build/vanilla-bd19-os/src/btctrler/bd19/lmp/lmp.o: \
+	$(wildcard src/btctrler/bd19/lmp/*.c)
 build/vanilla-br23/%.o: %.c $(wildcard src/btctrler/*.h)
 	@mkdir -p $(@D)
 	$(CC) $(SDK_CFLAGS) $(SDK_DEFINES) -Werror=implicit-function-declaration -iquote src -iquote src/sdkconfig $(SDK_INCLUDES) -c $< -o $@

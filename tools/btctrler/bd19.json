@@ -840,6 +840,14 @@
       "sources": [
         "src/btctrler/bd19/bredr_link.c"
       ]
+    },
+    {
+      "member": "lmp.c.o",
+      "occurrence": 1,
+      "sha256": "6c730d31018c6194101e9a3c1217684a21a6680af6e566d659a77dddd6d41e2b",
+      "sources": [
+        "src/btctrler/bd19/lmp/lmp.c"
+      ]
     }
   ]
 }
