@@ -19,9 +19,9 @@ Keep pending work and dirty changes until reviewed or explicitly preserved;
 there is no permanent branch or checkout per review. See the ownership/review
 skills for status, ancestry and nested dependency checks.
 
-BR23 compiles the existing C controller directly. BD19 migrates whole SDK
-members to reviewed C through `bd19.json`; unaccepted members stay in a
-retained SDK archive. SDK and toolchain dependencies are read-only inputs under `external/`; see
+BR23 compiles the existing C controller directly. BD19 owns every SDK
+`btctrler.a` member through `bd19.json` and links no controller archive; the
+SDK archive is read only as the reference for inspection, audit and compare. SDK and toolchain dependencies are read-only inputs under `external/`; see
 [vanilla-migration.md](vanilla-migration.md) for setup and baseline provenance.
 
 ```
@@ -84,8 +84,11 @@ Only those sources compile for BD19. Entries sharing a source form one
 ownership group; the source compiles once and its exports must exactly match
 the group's combined SDK exports. Duplicate SDK exports in such a group must
 have matching checked bodies/dependencies, rather than silently picking one.
-The builder drops exactly those member occurrences, reindexes the archive,
-and verifies all retained names, payload hashes, and order. `controller-audit`
+Members with no definitions (empty bitcode) are owned with `sources: []`.
+The plain ELF member `version.z.o` is owned by `bd19/version.c`; the audit
+compares its globals' section and bytes with the SDK object. `controller-audit`
+ends with `controller.py complete`, which fails if any SDK member occurrence is
+unowned or its fingerprint changed. `controller-audit`
 requires every original external function/global to be supplied by the
 corresponding compiled owned source(s)/group, with no additional external symbols.
 The audit also preserves SDK llvm.used/llvm.compiler.used retention roots;

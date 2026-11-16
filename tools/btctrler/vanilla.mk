@@ -40,6 +40,6 @@ controller-tools-test:
 	$(PYTHON) -m unittest discover -s tools/btctrler -p 'test_*.py'
 controller-audit: $(VANILLA_BD19_OBJECTS)
 	$(PYTHON) tools/controller.py audit --board vanilla-bd19
-	$(PYTHON) tools/controller.py retained --output build/sdk-libs/bd19/btctrler.a
+	$(PYTHON) tools/controller.py complete
 controller-compare: controller-ir $(VANILLA_BR23_OBJECTS)
 	$(PYTHON) tools/controller.py compare --owned-board vanilla-br23

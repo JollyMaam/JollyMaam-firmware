@@ -35,7 +35,7 @@ of those fixes separately from faithful SDK ownership.
 Use `tools/btctrler/README.md` for integration commands. Add manifest entries
 only after code review. Whole-member replacement requires all external
 definitions; `make controller-audit` checks compiled ownership against the
-original member. Verify retained archive member bytes and order, both target
+original member and that every SDK member stays owned (no archive). Verify both target
 layouts, affected firmware builds, and relevant tests. Explain firmware image
 differences where BR23 behavior should remain unchanged.
 

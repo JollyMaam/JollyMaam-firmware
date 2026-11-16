@@ -848,6 +848,44 @@
       "sources": [
         "src/btctrler/bd19/lmp/lmp.c"
       ]
+    },
+    {
+      "member": "hopping_channel.c.o",
+      "occurrence": 1,
+      "sha256": "40a6fec6c1720bab5c48bcd5b72fe7628b8d8a45833bbd70e2b73330572093e8",
+      "sources": []
+    },
+    {
+      "member": "access_addr.c.o",
+      "occurrence": 1,
+      "sha256": "0c747bd2cf27541f0f89a3ed1be1a3578ecf9ab27ecba1d5e030677b9ef65639",
+      "sources": []
+    },
+    {
+      "member": "wifi_detect.c.o",
+      "occurrence": 1,
+      "sha256": "76a2a2f03f7d5dfbc860e3c05b5dea40875ac0e2689cfd850c2f4398ffefb0f7",
+      "sources": []
+    },
+    {
+      "member": "tws_low_latency.c.o",
+      "occurrence": 1,
+      "sha256": "9641875fd869020b06ece8b81fd7a477f878e299902b5cad36cc3df4555d905e",
+      "sources": []
+    },
+    {
+      "member": "ll_cte.c.o",
+      "occurrence": 1,
+      "sha256": "ff052c824a6eea01ffb2272827987e0bbb5e814df0172974d1936b1b202467c5",
+      "sources": []
+    },
+    {
+      "member": "version.z.o",
+      "occurrence": 1,
+      "sha256": "82d1b9633394814fd17f33f727833d5a5e43671d61e5d93b602644d101de6640",
+      "sources": [
+        "src/btctrler/bd19/version.c"
+      ]
     }
   ]
 }

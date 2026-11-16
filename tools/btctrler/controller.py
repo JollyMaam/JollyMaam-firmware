@@ -1,6 +1,5 @@
 """Target-aware inspection and whole-member BD19 ownership boundaries."""
 import argparse
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
@@ -9,7 +8,7 @@ import re
 import subprocess
 import tempfile
 
-from .archive import index_entries, read_archive, sha256, write_archive
+from .archive import read_archive, sha256
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTROLLER = 'src/btctrler/'
@@ -77,6 +76,42 @@ def require_retention(expected, provided):
     missing |= expected['compiler.used'] - (provided['used'] | provided['compiler.used'])
     if missing:
         raise ValueError(f'owned C lost SDK retention roots: {sorted(missing)}')
+
+
+def elf_globals(data):
+    """Global defined symbols of a little-endian ELF32 object: name -> (section, bytes)."""
+    import struct
+    shoff, = struct.unpack_from('<I', data, 0x20)
+    shentsize, shnum, shstrndx = struct.unpack_from('<HHH', data, 0x2e)
+    sections = [struct.unpack_from('<IIIIIIIIII', data, shoff + i * shentsize) for i in range(shnum)]
+
+    def string(table, offset):
+        start = sections[table][4] + offset
+        return data[start:data.index(b'\0', start)].decode()
+
+    result = {}
+    for sh in sections:
+        if sh[1] != 2:                      # SHT_SYMTAB
+            continue
+        for offset in range(sh[4], sh[4] + sh[5], 16):
+            name, value, size, info, _, shndx = struct.unpack_from('<IIIBBH', data, offset)
+            if info >> 4 == 0 or shndx == 0 or shndx >= 0xff00:
+                continue                    # local or undefined
+            target = sections[shndx]
+            content = data[target[4]:target[4] + target[5]]
+            result[string(sh[6], name)] = (string(shstrndx, target[0]),
+                                           content[value:value + size] if size else content[value:])
+    return result
+
+
+def ir_global_bytes(text, name):
+    """Section and initializer bytes of a constant byte-array global in textual IR."""
+    m = re.search(r'^@' + re.escape(name) + r' = [^\n]*\[\d+ x i8\] c"((?:[^"\\]|\\[0-9A-Fa-f]{2})*)"'
+                  r'[^\n]*section "([^"]+)"', text, re.M)
+    if not m:
+        return None
+    raw = re.sub(r'\\([0-9A-Fa-f]{2})', lambda h: chr(int(h[1], 16)), m[1]).encode('latin-1')
+    return m[2], raw
 
 
 def inspect(chip, output):
@@ -198,38 +233,21 @@ def selected_sources(path=MANIFEST):
     return sorted({s for entry in data['members'] for s in entry['sources']})
 
 
-def retained(output, manifest_path=MANIFEST):
+def complete(manifest_path=MANIFEST):
+    """Every SDK member occurrence is owned: nothing links from btctrler.a."""
     data = manifest(manifest_path)
-    members, table = original('bd19')
+    members, _ = original('bd19')
     accepted = {(e['member'], e['occurrence']): e for e in data['members']}
-    missing = accepted.keys() - {(m.name, m.occurrence) for m in members}
-    if missing:
-        raise ValueError(f'owned members absent from SDK: {missing}')
+    present = {(m.name, m.occurrence) for m in members}
+    if accepted.keys() - present:
+        raise ValueError(f'owned members absent from SDK: {accepted.keys() - present}')
     for member in members:
         entry = accepted.get((member.name, member.occurrence))
-        if entry and entry['sha256'] != member.digest:
+        if entry is None:
+            raise ValueError(f'{member.key}: SDK member not owned')
+        if entry['sha256'] != member.digest:
             raise ValueError(f'{member.key}: ownership fingerprint changed')
-    output = Path(output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=output.parent) as tmp:
-        archive = Path(tmp) / 'btctrler.a'
-        write_archive(archive, [m for m in members if (m.name, m.occurrence) not in accepted], table)
-        tools = paths('bd19')[1]
-        # GNU ar alone indexes only version.z.o: the other members are LLVM
-        # bitcode and require the matching target's LTO plugin.
-        subprocess.run([str(tools / 'ar'), 's', '--plugin', str(tools / 'LLVMgold.so'),
-                        str(archive)], check=True)
-        # Reindexing must preserve every retained occurrence, payload, and order.
-        expected = [(m.name, m.digest) for m in members if (m.name, m.occurrence) not in accepted]
-        actual = [(m.name, m.digest) for m in read_archive(archive)[0]]
-        if actual != expected:
-            raise ValueError('archive indexing changed retained members')
-        expected_index = Counter((name, member.digest) for name, member in index_entries(paths('bd19')[0])
-                                 if (member.name, member.occurrence) not in accepted)
-        actual_index = Counter((name, member.digest) for name, member in index_entries(archive))
-        if actual_index != expected_index:
-            raise ValueError('retained symbol index differs from SDK; check the target LTO plugin')
-        os.replace(archive, output)
+    print(f'bd19: all {len(members)} SDK btctrler.a members owned; no archive is linked')
 
 
 def audit(board, manifest_path=MANIFEST):
@@ -241,11 +259,16 @@ def audit(board, manifest_path=MANIFEST):
     for group in ownership_groups(data):
         required = {'functions': set(), 'globals': set()}
         retained = {'used': set(), 'compiler.used': set()}
+        elf = {}
         modules = []
         for entry in group:
             sdk = rows[entry['member'], entry['occurrence']]
             if entry['sha256'] != sdk['sha256']:
                 raise ValueError(f'{entry["member"]}: ownership fingerprint changed')
+            if sdk['format'] == 'elf':
+                elf.update(elf_globals((ROOT / 'build/controller-ir/bd19' / sdk['object']).read_bytes()))
+                required['globals'].update(elf)
+                continue
             for kind in required:
                 required[kind].update(sdk[kind])
             sdk_text = (ROOT / 'build/controller-ir/bd19' / sdk['ir']).read_text()
@@ -257,6 +280,7 @@ def audit(board, manifest_path=MANIFEST):
         consistent_duplicates(modules)
         provided = {'functions': set(), 'globals': set()}
         provided_retained = {'used': set(), 'compiler.used': set()}
+        texts = []
         sources = sorted({s for entry in group for s in entry['sources']})
         for source in sources:
             obj = ROOT / 'build' / board / Path(source).with_suffix('.o')
@@ -266,6 +290,11 @@ def audit(board, manifest_path=MANIFEST):
                 provided[kind].update(names)
             for kind, names in retention_roots(text).items():
                 provided_retained[kind].update(names)
+            texts.append(text)
+        for name, expected in elf.items():
+            # A plain ELF member carries data only: same section, same bytes.
+            if not any(ir_global_bytes(t, name) == expected for t in texts):
+                raise ValueError(f'{name}: section/bytes differ from the SDK ELF member')
         require_retention(retained, provided_retained)
         for kind in provided:
             if provided[kind] != required[kind]:
@@ -282,8 +311,7 @@ def main():
     p = commands.add_parser('inspect')
     p.add_argument('--chip', choices=CHIPS, required=True)
     p.add_argument('--output', type=Path)
-    p = commands.add_parser('retained')
-    p.add_argument('--output', type=Path, required=True)
+    p = commands.add_parser('complete')
     p.add_argument('--manifest', type=Path, default=MANIFEST)
     p = commands.add_parser('sources')
     p.add_argument('--manifest', type=Path, default=MANIFEST)
@@ -298,8 +326,8 @@ def main():
     if args.command == 'inspect':
         result = inspect(args.chip, args.output or ROOT / f'build/controller-ir/{args.chip}')
         print(f'{args.chip}: {len(result["members"])} members inspected')
-    elif args.command == 'retained':
-        retained(args.output, args.manifest)
+    elif args.command == 'complete':
+        complete(args.manifest)
     elif args.command == 'sources':
         print(' '.join(selected_sources(args.manifest)))
     elif args.command == 'audit':

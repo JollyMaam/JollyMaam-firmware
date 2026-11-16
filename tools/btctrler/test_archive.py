@@ -133,7 +133,19 @@ define weak i8 @api() {
             manifest.write_text(json.dumps(data))
             with patch.object(controller, 'original', return_value=read_archive(source)):
                 with self.assertRaisesRegex(ValueError, 'fingerprint changed'):
-                    controller.retained(root / 'output.a', manifest)
+                    controller.complete(manifest)
+
+    def test_reject_unowned_member(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'input.a'
+            source.write_bytes(b'!<arch>\n' + record('member.c.o/', b'payload'))
+            data = {'chip': 'bd19', 'schema': 1, 'members': []}
+            manifest = root / 'manifest.json'
+            manifest.write_text(json.dumps(data))
+            with patch.object(controller, 'original', return_value=read_archive(source)):
+                with self.assertRaisesRegex(ValueError, 'not owned'):
+                    controller.complete(manifest)
 
 
 if __name__ == '__main__':
