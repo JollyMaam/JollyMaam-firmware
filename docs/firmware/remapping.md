@@ -69,8 +69,8 @@ the host's own presses of them are dropped until it ends. Each step follows the
 previous one by its recorded wait from when that one went out; a stall
 moves the rest later instead of squeezing them together. Steps are two
 bytes, the wait in 4 ms and a press, a release or a plain wait, in a
-254-byte buffer (about 60 presses). On the U2CW the buffer is the tool
-device's: while a macro is held, USB tool commands are refused.
+198-byte buffer (about 50 presses): a full one fits an empty saved macros
+field (200 bytes) without a name.
 
 **Lights.** Home shows quick settings' feedback over the scene: a remap on
 (one long blink) or off (two short), a held key's turbo (blinking at its
@@ -154,7 +154,7 @@ keys on every report handed over, starting down.
 Each remap slot and the base have their own macros (`src/core/macro.c`):
 a separate settings target per remap slot (`macros-south` … `macros-right`,
 `macros-base`; store keys 29–37) with one field, up to 8 named macros in
-`REMAP_MACRO_BYTES` (200; 146 on the U2CW). A remap slot with none set plays
+`REMAP_MACRO_BYTES` (200). A remap slot with none set plays
 the base's. They are never in RAM: a write goes to flash at commit (so
 ephemeral mode refuses it), and a macro plays from flash a step at a time
 (`plat_store_read_at`; core/store.c keeps the record's address until a

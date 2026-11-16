@@ -85,8 +85,8 @@ test("macros: steps and their waits, what the firmware refuses", () => {
     { ms: 1500, key: null, press: false }] });
   assert.equal(m[1].steps[0].ms, 3000);                     // long waits split, read back whole
   assert.equal(remap.macrosLength(m), 3 + 2 + 2 + 4 + 3 + 4 + 2 + 2);   // a long wait: 255-unit wait steps
-  const raw = remap.encodeMacros(m, 146);
-  assert.equal(raw.length, 146);
+  const raw = remap.encodeMacros(m, 200);
+  assert.equal(raw.length, 200);
   assert.equal(remap.showMacros(raw), "a: +south 40 -south 1500; b: 3000 +up -up");
   for (const bad of ["x +up", "x: +q", "x: up", "x".repeat(17) + ": +up", "x: " + "+up 40 -up ".repeat(60)]) {
     assert.throws(() => remap.parseMacros(bad), remap.RemapError, bad);
@@ -98,18 +98,18 @@ test("macros: steps and their waits, what the firmware refuses", () => {
   assert.throws(() => remap.parseRules("l4 held play_macro 1"), remap.RemapError);
 });
 
-test("a full u2cw QS recording fits an empty flash slot without a name", () => {
-  const raw = new Uint8Array(146);
-  raw[0] = 145;
+test("a full QS recording (198 bytes) fits an empty 200-byte slot without a name", () => {
+  const raw = new Uint8Array(200);
+  raw[0] = 199;
   for (let i = 2; i < raw.length; i += 4) {
     raw[i] = 0; raw[i + 1] = 0x20;
     raw[i + 2] = 10; raw[i + 3] = 0;
   }
   const macros = remap.decodeMacros(raw);
-  assert.deepEqual(remap.encodeMacros(macros, 146), raw);
-  assert.throws(() => remap.encodeMacros([...macros, ...macros], 146), /pad has/);
+  assert.deepEqual(remap.encodeMacros(macros, 200), raw);
+  assert.throws(() => remap.encodeMacros([...macros, ...macros], 200), /pad has/);
   macros[0].name = "x";
-  assert.throws(() => remap.encodeMacros(macros, 146), /pad has/);
+  assert.throws(() => remap.encodeMacros(macros, 200), /pad has/);
 });
 
 test("empty macro cards do not change the saved setting", async () => {

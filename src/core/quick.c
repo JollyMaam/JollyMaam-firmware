@@ -33,7 +33,11 @@
 #define QUICK_MIN_PRESS   40        /* a recorded press lasts at least this: hosts poll every 7.5-15 ms */
 #define QUICK_KEYS        (PAD_DIGITAL & ~(PAD_HOME | PAD_M))   /* keys that take a turbo, a mapping or the macro */
 #ifndef QUICK_MACRO_BYTES
-#define QUICK_MACRO_BYTES 254       /* the most a macro holds; a lent buffer may give less */
+#define QUICK_MACRO_BYTES 198       /* a full one fits an empty saved macros field (REMAP_MACRO_BYTES) */
+#endif
+_Static_assert(QUICK_MACRO_BYTES <= 254 && QUICK_MACRO_BYTES % 2 == 0, "q.len is a byte of whole steps");
+#if REMAP_MACRO_BYTES
+_Static_assert(QUICK_MACRO_BYTES + 2 <= REMAP_MACRO_BYTES, "a full recording imports into an empty saved field");
 #endif
 
 enum { IDLE, RECORDING, PLAYING };

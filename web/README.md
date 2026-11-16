@@ -65,5 +65,5 @@ step text must be corrected before saving.
 **Import from quick settings** replaces that card's steps with the completed
 QS recording, retained when entering configuration mode. **Save** writes the
 edited macros. Add a remap rule to choose how a saved macro plays (once,
-while held, or looping). A full 144-byte U2CW recording needs an empty
-146-byte macro field and leaves no space for a name.
+while held, or looping). A full 198-byte recording fills an empty
+200-byte macro field and leaves no space for a name.
