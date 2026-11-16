@@ -32,7 +32,6 @@ PROFILE_SOURCES += src/profiles/profile_link.c
 PROFILE_SOURCES += src/profiles/profile_playstation.c
 PROFILE_SOURCES += src/profiles/profile_switch.c
 PROFILE_SOURCES += src/profiles/profile_xbox.c
-# A pad's own: config mode and waking a Switch 2.
+# A pad's own: config mode.
 PROFILE_PAD_SOURCES :=
 PROFILE_PAD_SOURCES += src/profiles/profile_config.c
-PROFILE_PAD_SOURCES += src/profiles/profile_switch_wake.c

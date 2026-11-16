@@ -718,8 +718,9 @@ void bt_timing(struct bt_timing *out, int reset)
     out->link.transport = b.linked ? 1 : 0;
 }
 
-#if SLOT_SWITCH2_WAKE
-/* Waking a Switch 2 for a Switch Pro (Classic) slot: the console wakes on
+#ifndef UPDATER
+/* A Switch Pro slot uses native Switch 1 wake unless switch2_wake is set.
+ * Waking a Switch 2: the console wakes on
  * the wake advert from an address it paired as a Switch 2 controller, here
  * a Joy-Con 2's (switch2_wake, learnt by padtool), naming the console (the
  * slot's Classic peer: the console's LE address too).  The core sends no
@@ -727,14 +728,29 @@ void bt_timing(struct bt_timing *out, int reset)
  * console stays awake on it while the pages come.  Seen working 2026-11-12:
  * awake and connected in about 3 s. */
 static u32 wake_until;
+static u8 wake_switch2;
 
 static int wake_start(const struct profile_session *s)
 {
     const u8 *w = s->settings->switch2_wake;
-    u8 adv[31];
+    u8 adv[31], cmd[36];
     int i, ok;
 
-    if (!s->bond || util_is_zero(s->bond->peer, 6) || util_is_zero(w, 6)) return -1;
+    if (!s->bond || util_is_zero(s->bond->peer, 6)) return -1;
+    wake_switch2 = !util_is_zero(w, 6);
+    if (!wake_switch2) {
+        b.bond = *s->bond;
+        memcpy(b.address, s->address, 6);
+        b.prof = &profile_switch;
+        b.pairing = 0;
+        if (!core_start(&profile_switch)) return -1;
+        visibility(0);
+        switch1_wake_command(s->bond, cmd);
+        if (!command(0x70, cmd, sizeof(cmd), 0)) return -1;
+        wake_until = plat_ms() + 4000;
+        util_log("wake: Switch 1");
+        return 0;
+    }
     memset(&b.bond, 0, sizeof(b.bond));
     memcpy(b.address, w, 6);
     b.prof = &profile_switch2;
@@ -751,39 +767,25 @@ static int wake_start(const struct profile_session *s)
     return 0;
 }
 
+static void wake_stop(void)
+{
+    if (wake_switch2) visibility(0);
+    else {
+        /* Restarting the core also cancels its native wake procedure. */
+        core_start(NULL);
+        visibility(0);
+    }
+}
+
 static int wake_step(u32 now, u32 *next)
 {
     if ((s32)(now - wake_until) < 0) {
         *next = wake_until;
         return 0;
     }
-    visibility(0);
+    wake_stop();
     return 1;
 }
 
-static void wake_stop(void)
-{
-    visibility(0);
-}
-
-const struct profile_wake profile_switch_wake = { wake_start, wake_step, wake_stop, 1 };
-#else
-/* Waking a Switch: the core has its own command for it (stock's 0x70,
- * "WakeUp_Switch"), not used yet; nothing to wake here. */
-static int wake_start(const struct profile_session *s)
-{
-    (void)s;
-    return -1;
-}
-
-static int wake_step(u32 now, u32 *next)
-{
-    (void)now;
-    (void)next;
-    return 1;
-}
-
-static void wake_stop(void) {}
-
-const struct profile_wake profile_switch_wake = { wake_start, wake_step, wake_stop, 0 };
+const struct profile_wake plat_switch_wake = { wake_start, wake_step, wake_stop, 1 };
 #endif

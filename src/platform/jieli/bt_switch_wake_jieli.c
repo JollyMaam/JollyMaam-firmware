@@ -1,83 +1,17 @@
 #include <string.h>
 #include "pad.h"
 
-/* Waking a sleeping Switch 1: not a link, but raw packets on one channel for
- * some seconds, carrying the console's wake-up code.  The baseband whitens
- * every packet and its whitening state is not measured, so the body is
- * pre-cancelled for each of the 32 states in turn.  The access code has been
+/* Waking a sleeping Switch 1: raw packets on one channel, with the
+ * body pre-cancelled for each whitening state.  The access code has been
  * seen on the air; a console actually waking has not. */
 
 #define CHANNEL      0
 #define DURATION_MS  1000
 #define DWELL_MS     30          /* per whitening state (8 bursts): all 32 fit in 1 s */
 #define INTERVAL     6           /* slots between bursts (3.75 ms) */
-#define BODY         339
-#define SKIP_BITS    34          /* multi-slot header bits before the body */
-#define STATES       32
+#define BODY         SWITCH1_WAKE_BODY
+#define STATES       SWITCH1_WAKE_STATES
 
-/* ---- the wake-up code ------------------------------------------------------
- * The Baseband sync word of the console's LAP, with its low 32 bits inverted.
- * PN and the (63,30) BCH generator times (D + 1) are from the Core spec. */
-
-#define PN        0x83848D96BBCC54FCull
-#define GENERATOR 0x585713DA9ull
-
-static u64 sync_word(const u8 a[6])
-{
-    u32 lap = a[0] | (u32)a[1] << 8 | (u32)a[2] << 16;
-    u32 info = ((lap & 0x800000) ? 0x13000000u : 0x2C000000u) | lap;
-    u64 v = (u64)(info ^ (u32)(PN >> 34)) << 34, r = v;
-    int bit;
-
-    for (bit = 63; bit >= 34; bit--)
-        if (r & (1ull << bit)) r ^= GENERATOR << (bit - 34);
-    return (v ^ r) ^ PN;
-}
-
-/* The parity field the baseband is given; its low four bytes are the wake-up
- * code in transmission order. */
-static void wake_parity(const u8 a[6], u8 out[5])
-{
-    u64 v = sync_word(a) & 0x3FFFFFFFFull;
-    int i;
-
-    for (i = 0; i < 4; i++) out[i] = (u8)(v >> (8 * i)) ^ 0xff;
-    out[4] = (u8)(v >> 32);
-}
-
-/* The order the reference walks the whitening states in. */
-static const u8 seeds[STATES] = {
-    0x69, 0x01, 0x31, 0x7d, 0x05, 0x5b, 0x6b, 0x03, 0x5f, 0x37, 0x07, 0x59, 0x21, 0x6d, 0x5d, 0x35,
-    0x7b, 0x13, 0x23, 0x6f, 0x17, 0x49, 0x79, 0x11, 0x4d, 0x25, 0x15, 0x4b, 0x33, 0x7f, 0x4f, 0x27,
-};
-
-/* XOR the whitening sequence (7-bit LFSR, taps 0 and 4, low bit out) over
- * the body, `skip` bits in. */
-static void unwhiten(u8 *body, u16 len, u8 seed, u8 skip)
-{
-    u8 reg = seed & 0x7f;
-    u32 bit, n = (u32)len * 8 + skip;
-
-    for (bit = 0; bit < n; bit++) {
-        if (bit >= skip && (reg & 1)) body[(bit - skip) / 8] ^= (u8)(1u << ((bit - skip) % 8));
-        reg = (u8)((reg >> 1) | (((reg ^ (reg >> 4)) & 1) << 6));
-    }
-}
-
-/* The wake-up code rotated by 10 bits, repeated; the last three bytes zero,
- * as the reference sends it. */
-static void build_body(const u8 a[6], u8 *body)
-{
-    u32 w = ~(u32)sync_word(a);
-    u8 rep[4];
-    u16 i;
-
-    util_put32(rep, (w >> 10) | (w << 22));
-    for (i = 0; i < BODY; i++) body[i] = rep[i % 4];
-    memset(body + BODY - 3, 0, 3);
-}
-
-#ifndef UNITTEST
 /* ---- the radio (BR23) ------------------------------------------------------
  * The register sequence of the controller library's own fixed-frequency
  * transmit (__fix_txrx_enable() in bredr_link.c.o), with our parity, payload
@@ -215,10 +149,9 @@ static struct {
 static int start_state(void)
 {
     static u8 body[BODY];
+    u8 seed = switch1_wake_packet(w.target, w.state, w.parity, body);
 
-    build_body(w.target, body);
-    unwhiten(body, BODY, seeds[w.state], SKIP_BITS);
-    return radio_start(w.target, w.parity, seeds[w.state], body);
+    return radio_start(w.target, w.parity, seed, body);
 }
 
 static void stop(void)
@@ -235,7 +168,6 @@ static int start(const struct profile_session *s)
     if (!s->bond || !memcmp(s->bond->peer, zero, 6)) return -1;
     memset(&w, 0, sizeof(w));
     memcpy(w.target, s->bond->peer, 6);
-    wake_parity(w.target, w.parity);
     if (hci_jieli_open()) return -1;
     w.active = 1;
     w.started = w.state_ms = plat_ms();
@@ -271,43 +203,4 @@ static int step(u32 now, u32 *next)
     return 0;
 }
 
-const struct profile_wake profile_switch_wake = { start, step, stop };
-#endif
-
-#ifdef UNITTEST
-#include "test.h"
-
-void util_put32(u8 *p, u32 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); p[2] = (u8)(v >> 16); p[3] = (u8)(v >> 24); }
-
-/* The reference's worked examples (NS1-Wakeup-Demo), printed address order. */
-static const struct { u8 printed[6]; u32 wake32; } vectors[] = {
-    { { 0x55, 0x55, 0x55, 0x55, 0x55, 0x55 }, 0x79F98210u },
-    { { 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa }, 0xfad69689u },
-    { { 0x54, 0xf7, 0x08, 0x90, 0x34, 0x25 }, 0x0cb13e3fu },
-    { { 0xef, 0x4a, 0xc5, 0x1a, 0x00, 0xee }, 0xaf3bc02du },
-};
-
-int main(void)
-{
-    u8 a[6], parity[5], code[4], body[BODY], again[BODY];
-    u32 i, j;
-
-    for (i = 0; i < sizeof(vectors) / sizeof(vectors[0]); i++) {
-        for (j = 0; j < 6; j++) a[j] = vectors[i].printed[5 - j];
-        CHECK(~(u32)sync_word(a) == vectors[i].wake32);
-        wake_parity(a, parity);
-        util_put32(code, vectors[i].wake32);
-        CHECK(!memcmp(parity, code, 4));
-    }
-    CHECK((sync_word(a) ^ 0xffffffffu) == 0xB06803B9AF3BC02Dull);   /* inside the access code */
-    build_body(a, body);
-    for (j = 4; j < BODY - 3; j++) CHECK(body[j] == body[j % 4]);
-    CHECK(!body[BODY - 1] && !body[BODY - 3]);
-    memcpy(again, body, BODY);
-    unwhiten(again, BODY, seeds[0], SKIP_BITS);
-    CHECK(memcmp(again, body, BODY));
-    unwhiten(again, BODY, seeds[0], SKIP_BITS);
-    CHECK(!memcmp(again, body, BODY));
-    return TEST_DONE("profile_switch_wake");
-}
-#endif
+const struct profile_wake plat_switch_wake = { start, step, stop };

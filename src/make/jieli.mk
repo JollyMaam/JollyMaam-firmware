@@ -290,6 +290,8 @@ JIELI_PLATFORM_SOURCES :=
 JIELI_PLATFORM_SOURCES += src/platform/jieli/platform_jieli.c
 JIELI_PLATFORM_SOURCES += src/platform/jieli/platform_jieli_sdk.c
 JIELI_PLATFORM_SOURCES += src/platform/jieli/platform_jieli_usb.c
+JIELI_PAD_WAKE_SOURCES := src/platform/jieli/bt_switch_wake_jieli.c
+
 # One of the two: USB audio, or its stubs.
 JIELI_AUDIO_SOURCES := src/platform/jieli/platform_jieli_audio.c
 JIELI_NOAUDIO_SOURCES := src/platform/jieli/platform_jieli_noaudio.c

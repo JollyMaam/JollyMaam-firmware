@@ -495,7 +495,14 @@ void profile_config_service(void);          /* config mode: on the control loop,
  * (profile_hid.c): one buffer for whichever profile runs.  Returns its length. */
 extern u8 profile_scan_response[31];
 u8 profile_scan_name(const char *tail);
-extern const struct profile_wake profile_switch_wake;
+extern const struct profile_wake plat_switch_wake;
+/* Switch 1 raw wake packets: whitening state 0..31, parity and payload.
+ * Returns the whitening seed the radio must use for this packet. */
+#define SWITCH1_WAKE_BODY 339
+#define SWITCH1_WAKE_STATES 32
+u8 switch1_wake_packet(const u8 address[6], u8 state, u8 parity[5], u8 body[SWITCH1_WAKE_BODY]);
+/* The YC3121 Switch 1 wake command payload, using the slot's bond. */
+void switch1_wake_command(const struct bt_bond *bond, u8 out[36]);
 /* The Switch 2 wake advert (31 bytes) naming the console (least
  * significant byte first), as the controller with that product ID sends it. */
 u8 switch2_wake_advert(const u8 console[6], u16 product, u8 out[31]);

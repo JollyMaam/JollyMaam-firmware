@@ -418,7 +418,7 @@ const struct profile profile_switch = {
     .write = write,
     .host = host,
 #if !defined(UNITTEST) && !defined(BOARD_DONGLE)
-    .wake = &profile_switch_wake,
+    .wake = &plat_switch_wake,
 #endif
 };
 
@@ -1162,7 +1162,144 @@ const struct profile profile_switch2 = {
     .begin = s2_begin, .report = s2_any_report, .write = s2_write, .host = s2_host, .read = s2_read,
 };
 
+/* Switch 1 wake codes and packet construction, shared by the platforms. */
+
+#define WAKE_BODY      SWITCH1_WAKE_BODY
+#define WAKE_STATES    SWITCH1_WAKE_STATES
+#define WAKE_SKIP_BITS 34          /* multi-slot header bits before the body */
+
+/* ---- the wake-up code ------------------------------------------------------
+ * The Baseband sync word of the console's LAP, with its low 32 bits inverted.
+ * WAKE_PN and the (63,30) BCH generator times (D + 1) are from the Core spec. */
+
+#define WAKE_PN        0x83848D96BBCC54FCull
+#define WAKE_GENERATOR 0x585713DA9ull
+
+static u64 wake_sync_word(const u8 a[6])
+{
+    u32 lap = a[0] | (u32)a[1] << 8 | (u32)a[2] << 16;
+    u32 info = ((lap & 0x800000) ? 0x13000000u : 0x2C000000u) | lap;
+    u64 v = (u64)(info ^ (u32)(WAKE_PN >> 34)) << 34, r = v;
+    int bit;
+
+    for (bit = 63; bit >= 34; bit--)
+        if (r & (1ull << bit)) r ^= WAKE_GENERATOR << (bit - 34);
+    return (v ^ r) ^ WAKE_PN;
+}
+
+/* YC3121 command 0x70, matching stock: timeout in 0.625 ms units,
+ * peer, inverted low sync word, full sync word, and link key. */
+void switch1_wake_command(const struct bt_bond *bond, u8 out[36])
+{
+    u64 sync = wake_sync_word(bond->peer);
+
+    out[0] = 0xc0;
+    out[1] = 0x12;
+    memcpy(out + 2, bond->peer, 6);
+    util_put32(out + 8, ~(u32)sync);
+    util_put32(out + 12, (u32)sync);
+    util_put32(out + 16, (u32)(sync >> 32));
+    memcpy(out + 20, bond->link_key, 16);
+}
+
+/* The parity field the baseband is given; its low four bytes are the wake-up
+ * code in transmission order. */
+static void wake_parity(const u8 a[6], u8 out[5])
+{
+    u64 v = wake_sync_word(a) & 0x3FFFFFFFFull;
+    int i;
+
+    for (i = 0; i < 4; i++) out[i] = (u8)(v >> (8 * i)) ^ 0xff;
+    out[4] = (u8)(v >> 32);
+}
+
+/* The order the reference walks the whitening states in. */
+static const u8 wake_seeds[WAKE_STATES] = {
+    0x69, 0x01, 0x31, 0x7d, 0x05, 0x5b, 0x6b, 0x03, 0x5f, 0x37, 0x07, 0x59, 0x21, 0x6d, 0x5d, 0x35,
+    0x7b, 0x13, 0x23, 0x6f, 0x17, 0x49, 0x79, 0x11, 0x4d, 0x25, 0x15, 0x4b, 0x33, 0x7f, 0x4f, 0x27,
+};
+
+/* XOR the whitening sequence (7-bit LFSR, taps 0 and 4, low bit out) over
+ * the body, `skip` bits in. */
+static void wake_unwhiten(u8 *body, u16 len, u8 seed, u8 skip)
+{
+    u8 reg = seed & 0x7f;
+    u32 bit, n = (u32)len * 8 + skip;
+
+    for (bit = 0; bit < n; bit++) {
+        if (bit >= skip && (reg & 1)) body[(bit - skip) / 8] ^= (u8)(1u << ((bit - skip) % 8));
+        reg = (u8)((reg >> 1) | (((reg ^ (reg >> 4)) & 1) << 6));
+    }
+}
+
+/* The wake-up code rotated by 10 bits, repeated; the last three bytes zero,
+ * as the reference sends it. */
+static void wake_build_body(const u8 a[6], u8 *body)
+{
+    u32 w = ~(u32)wake_sync_word(a);
+    u8 rep[4];
+    u16 i;
+
+    util_put32(rep, (w >> 10) | (w << 22));
+    for (i = 0; i < WAKE_BODY; i++) body[i] = rep[i % 4];
+    memset(body + WAKE_BODY - 3, 0, 3);
+}
+
+u8 switch1_wake_packet(const u8 address[6], u8 state, u8 parity[5], u8 body[SWITCH1_WAKE_BODY])
+{
+    u8 seed = wake_seeds[state % WAKE_STATES];
+
+    wake_parity(address, parity);
+    wake_build_body(address, body);
+    wake_unwhiten(body, WAKE_BODY, seed, WAKE_SKIP_BITS);
+    return seed;
+}
+
 #ifdef UNITTEST
+void util_put32(u8 *p, u32 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); p[2] = (u8)(v >> 16); p[3] = (u8)(v >> 24); }
+
+/* The reference's worked examples (NS1-Wakeup-Demo), printed address order. */
+static const struct { u8 printed[6]; u32 wake32; } wake_vectors[] = {
+    { { 0x55, 0x55, 0x55, 0x55, 0x55, 0x55 }, 0x79F98210u },
+    { { 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa }, 0xfad69689u },
+    { { 0x54, 0xf7, 0x08, 0x90, 0x34, 0x25 }, 0x0cb13e3fu },
+    { { 0xef, 0x4a, 0xc5, 0x1a, 0x00, 0xee }, 0xaf3bc02du },
+};
+
+static void test_switch1_wake(void)
+{
+    u8 a[6], parity[5], code[4], body[WAKE_BODY], again[WAKE_BODY];
+    struct bt_bond bond = {0};
+    u8 command[36];
+    u32 i, j;
+
+    for (i = 0; i < sizeof(wake_vectors) / sizeof(wake_vectors[0]); i++) {
+        for (j = 0; j < 6; j++) a[j] = wake_vectors[i].printed[5 - j];
+        CHECK(~(u32)wake_sync_word(a) == wake_vectors[i].wake32);
+        wake_parity(a, parity);
+        util_put32(code, wake_vectors[i].wake32);
+        CHECK(!memcmp(parity, code, 4));
+    }
+    CHECK((wake_sync_word(a) ^ 0xffffffffu) == 0xB06803B9AF3BC02Dull);   /* inside the access code */
+    memcpy(bond.peer, a, 6);
+    memset(bond.link_key, 0x5a, 16);
+    switch1_wake_command(&bond, command);
+    CHECK(command[0] == 0xc0 && command[1] == 0x12);
+    CHECK(!memcmp(command + 2, a, 6));
+    CHECK(!memcmp(command + 8, code, 4));
+    for (i = 0; i < 4; i++) CHECK(command[12 + i] == (u8)(code[i] ^ 0xff));
+    CHECK(!memcmp(command + 20, bond.link_key, 16));
+    CHECK(command[16] == 0xb9 && command[17] == 0x03 && command[18] == 0x68 && command[19] == 0xb0);
+    wake_build_body(a, body);
+    for (j = 4; j < WAKE_BODY - 3; j++) CHECK(body[j] == body[j % 4]);
+    CHECK(!body[WAKE_BODY - 1] && !body[WAKE_BODY - 3]);
+    memcpy(again, body, WAKE_BODY);
+    wake_unwhiten(again, WAKE_BODY, wake_seeds[0], WAKE_SKIP_BITS);
+    CHECK(memcmp(again, body, WAKE_BODY));
+    wake_unwhiten(again, WAKE_BODY, wake_seeds[0], WAKE_SKIP_BITS);
+    CHECK(!memcmp(again, body, WAKE_BODY));
+}
+
 u8 profile_ram[PROFILE_RAM] __attribute__((aligned(8)));
 static u8 sent[160];
 static u16 sent_len;
@@ -1188,6 +1325,8 @@ int main(void)
     struct bt_write w;
     struct profile_host h;
     u8 out[64], id;
+
+    test_switch1_wake();
 
     {   /* Full, partial and USB reads agree on the stable factory serial. */
         u8 full[37], partial[40], serial[16];
