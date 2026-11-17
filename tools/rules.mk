@@ -1,5 +1,6 @@
 # The hub daemon (tools/padhub.c, tools/padhub.md): the dongle's profiles,
 # built for this PC, and its test.
+ifneq ($(findstring linux,$(HOST_TRIPLE)),)
 PADHUB_SOURCES := $(self)/padhub.c src/profiles/profile_link.c src/profiles/profile_switch.c \
 	src/profiles/profile_xbox.c src/profiles/profile_playstation.c src/profiles/profile_hid.c \
 	src/core/motion.c src/core/utils.c
@@ -24,3 +25,4 @@ $(O)/host/padhub-test.ok: $(O)/host/test-padhub
 padhub: $(O)/host/padhub
 padhub-test: $(O)/host/padhub-test.ok
 test: padhub-test
+endif

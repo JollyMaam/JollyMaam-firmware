@@ -5,6 +5,8 @@ OF := $(abspath $O)
 
 HOST_CC ?= $(if $(filter default undefined,$(origin CC)),gcc,$(CC))
 HOST_AR ?= $(AR)
+HOST_TRIPLE := $(shell $(HOST_CC) -dumpmachine)
+JOLLYMAAM_PLATFORM ?= $(if $(findstring mingw,$(HOST_TRIPLE)),windows,$(if $(findstring linux,$(HOST_TRIPLE)),linux,hidapi))
 HOST_CFLAGS := -O2 -g -std=c11 -Wall -Wextra -Wno-unused-function -Wno-missing-field-initializers
 
 EXTRA_DEFINES :=

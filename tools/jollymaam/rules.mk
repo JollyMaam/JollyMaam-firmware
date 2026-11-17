@@ -1,8 +1,6 @@
 # The jollymaam command, with this platform's hooks.
 # JOLLYMAAM_PLATFORM: linux, windows (a MinGW HOST_CC) or hidapi (anything
 # else: macOS); JOLLYMAAM_STATIC=1 links statically.
-HOST_TRIPLE := $(shell $(HOST_CC) -dumpmachine)
-JOLLYMAAM_PLATFORM ?= $(if $(findstring mingw,$(HOST_TRIPLE)),windows,$(if $(findstring linux,$(HOST_TRIPLE)),linux,hidapi))
 JOLLYMAAM_EXEEXT := $(if $(filter windows,$(JOLLYMAAM_PLATFORM)),.exe)
 JOLLYMAAM_LIBS := $(if $(filter windows,$(JOLLYMAAM_PLATFORM)),-lsetupapi -lhid -lcfgmgr32) \
 	$(if $(filter hidapi,$(JOLLYMAAM_PLATFORM)),$(shell pkg-config --cflags --libs hidapi))
