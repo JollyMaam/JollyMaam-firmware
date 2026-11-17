@@ -884,7 +884,7 @@
       "occurrence": 1,
       "sha256": "82d1b9633394814fd17f33f727833d5a5e43671d61e5d93b602644d101de6640",
       "sources": [
-        "src/btctrler/bd19/version.c"
+        "src/btctrler/version.c"
       ]
     }
   ]

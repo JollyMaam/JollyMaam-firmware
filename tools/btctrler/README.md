@@ -85,7 +85,7 @@ ownership group; the source compiles once and its exports must exactly match
 the group's combined SDK exports. Duplicate SDK exports in such a group must
 have matching checked bodies/dependencies, rather than silently picking one.
 Members with no definitions (empty bitcode) are owned with `sources: []`.
-The plain ELF member `version.z.o` is owned by `bd19/version.c`; the audit
+The plain ELF member `version.z.o` is owned by `version.c` (bytes per chip); the audit
 compares its globals' section and bytes with the SDK object. `controller-audit`
 ends with `controller.py complete`, which fails if any SDK member occurrence is
 unowned or its fingerprint changed. `controller-audit`
