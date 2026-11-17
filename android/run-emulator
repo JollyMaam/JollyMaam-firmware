@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'USAGE'
+Usage: run-emulator [--no-build] [--scrcpy | --headless] [--cold-boot] [--software]
+
+Build padtool and boot Android 15 in the normal emulator window.
+Keep this command running. Ctrl-C stops this run's build, scrcpy, emulator and
+private adb server, and removes its temporary files. The AVD is kept. Closing the display window also stops the session.
+In the terminal, r + Enter rebuilds/reinstalls; q + Enter stops the session.
+
+  --no-build   Install the existing ../build/android/app/outputs/apk/debug/app-debug.apk
+  --scrcpy     Use -no-window and show Android through scrcpy instead
+  --headless   Start without either display window (for automation)
+  --cold-boot  Start without loading a snapshot
+  --software  Disable KVM; much slower (allows ten minutes to boot)
+  --help       Show this help
+
+PADTOOL_EMULATOR_PORT: even emulator port, default 5580 (adb device port 5581).
+PADTOOL_ADB_PORT: private adb server port, default emulator port + 1000.
+QT_QPA_PLATFORM is set to xcb for the emulator's bundled Qt.
+State/logs: $XDG_STATE_HOME/cyclone-padtool/emulator, or ~/.local/state/...
+USAGE
+}
+fail() { echo "padtool emulator: $*" >&2; exit 1; }
+build=true
+headless=false
+mirror=false
+cold=false
+software=false
+for arg in "$@"; do
+    case "$arg" in
+        --no-build) build=false ;;
+        --headless) headless=true ;;
+        --scrcpy) mirror=true ;;
+        --cold-boot) cold=true ;;
+        --software) software=true ;;
+        --help|-h) usage; exit 0 ;;
+        *) usage >&2; fail "unknown option: $arg" ;;
+    esac
+done
+if $headless && $mirror; then fail '--headless and --scrcpy cannot be used together'; fi
+[[ $(uname -sm) == 'Linux x86_64' ]] || fail 'this launcher uses an x86_64 Linux system image'
+android_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ ${JOLLYMAAM_EMULATOR_SHELL:-0} != 1 ]]; then
+    exec nix develop "$android_dir/..#emulator" --command bash "$android_dir/run-emulator" "$@"
+fi
+cd "$android_dir"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/cyclone-padtool/emulator"
+mkdir -p "$state_dir/avd"
+export ANDROID_AVD_HOME="$state_dir/avd"
+avd_name=cyclone-padtool-api35
+port=${PADTOOL_EMULATOR_PORT:-5580}
+if [[ ! $port =~ ^[0-9]{4}$ ]]; then fail 'port must be even and between 5554 and 5584'; fi
+if (( port < 5554 || port > 5584 || port % 2 != 0 )); then fail 'port must be even and between 5554 and 5584'; fi
+serial="emulator-$port"
+apk="$android_dir/../build/android/app/outputs/apk/debug/app-debug.apk"
+log_file="$state_dir/emulator.log"
+
+# A supervisor holds a close-on-exec lock and forwards signals to the worker.
+# It waits for cleanup before returning, so retry cannot race a dying session.
+if [[ ${PADTOOL_EMULATOR_LOCK_HELD:-} != "$state_dir" ]]; then
+    exec python3 "$android_dir/tools/launcher_lock.py" "$state_dir/launch.lock" "$BASH" "$android_dir/run-emulator" "$@"
+fi
+unset PADTOOL_EMULATOR_LOCK_HELD
+
+run_dir=$(mktemp -d "$state_dir/run.XXXXXX")
+build_pid=
+emulator_pid=
+scrcpy_pid=
+adb_pid=
+stop_group() {
+    local pid=$1
+    [[ -n $pid ]] || return 0
+    kill -TERM -- "-$pid" 2>/dev/null || true
+    for _ in {1..30}; do
+        if ! kill -0 -- "-$pid" 2>/dev/null; then break; fi
+        sleep 0.1
+    done
+    kill -KILL -- "-$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+}
+cleanup() {
+    local result=$?
+    trap - EXIT
+    trap '' INT TERM HUP
+    stop_group "$build_pid"
+    stop_group "$scrcpy_pid"
+    if [[ -n $emulator_pid && -n $adb_pid ]] && kill -0 "$adb_pid" 2>/dev/null; then
+        timeout 3s adb -s "$serial" emu kill >/dev/null 2>&1 || true
+    fi
+    stop_group "$emulator_pid"
+    stop_group "$adb_pid"
+    rm -rf -- "$run_dir"
+    exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+# Each long-lived child has its own process group, including its descendants.
+# The launcher remains in the foreground so signals always trigger cleanup.
+build_app() {
+    local result=0
+    setsid ./gradlew --no-daemon --project-cache-dir "$android_dir/../build/android/.gradle" :app:assembleDebug &
+    build_pid=$!
+    wait "$build_pid" || result=$?
+    stop_group "$build_pid"
+    build_pid=
+    return "$result"
+}
+if $build; then build_app; fi
+[[ -f $apk ]] || fail 'APK not found; run again without --no-build'
+if ! $software; then
+    [[ -r /dev/kvm && -w /dev/kvm ]] || fail 'KVM is unavailable. Run on the host with access to /dev/kvm, or use --software.'
+    emulator -accel-check || fail 'KVM acceleration check failed; use --software for slow emulation'
+fi
+
+# A private foreground adb server lets cleanup stop everything it started
+# without disrupting an existing adb server or a connected physical phone.
+adb_port=${PADTOOL_ADB_PORT:-$((port + 1000))}
+if [[ ! $adb_port =~ ^[1-9][0-9]{3,4}$ ]]; then fail 'private adb port must be between 1024 and 65535'; fi
+if (( adb_port < 1024 || adb_port > 65535 || adb_port == port || adb_port == port + 1 )); then fail 'invalid private adb port'; fi
+socket_open() { (exec 3<>"/dev/tcp/127.0.0.1/$adb_port") 2>/dev/null; }
+if socket_open; then fail "private adb port $adb_port is occupied; choose PADTOOL_ADB_PORT"; fi
+export ADB_SERVER_SOCKET="tcp:127.0.0.1:$adb_port"
+export ANDROID_ADB_SERVER_PORT="$adb_port"
+export ANDROID_ADB_SERVER_ADDRESS=127.0.0.1
+export ADB_MDNS_AUTO_CONNECT=
+setsid adb -L "tcp:$adb_port" server nodaemon >"$state_dir/adb.log" 2>&1 &
+adb_pid=$!
+for _ in {1..50}; do
+    if ! kill -0 "$adb_pid" 2>/dev/null; then cat "$state_dir/adb.log" >&2; fail 'private adb server exited'; fi
+    if socket_open; then break; fi
+    sleep 0.1
+done
+socket_open || fail 'private adb server did not become ready'
+# Never adopt an emulator from an earlier run; ownership must remain explicit.
+if [[ -n $(adb devices | awk -v serial="$serial" '$1 == serial { print $1 }') ]]; then
+    fail "$serial is already running; stop the old emulator before launching this session"
+fi
+
+if [[ ! -f $ANDROID_AVD_HOME/$avd_name.avd/config.ini ]]; then
+    echo 'Creating Android 15 virtual device (AOSP, no Google account required)'
+    avdmanager create avd --name "$avd_name" --package 'system-images;android-35;default;x86_64' --device pixel <<< no
+    config="$ANDROID_AVD_HOME/$avd_name.avd/config.ini"
+    sed -i -E '/^(hw\.(lcd\.(width|height|density)|keyboard|ramSize)|skin\.(name|dynamic)|showDeviceFrame|disk\.dataPartition\.size)=/d' "$config"
+    cat >> "$config" <<'CONFIG'
+hw.lcd.width=540
+hw.lcd.height=1080
+hw.lcd.density=240
+hw.keyboard=yes
+hw.ramSize=2048
+skin.name=540x1080
+skin.dynamic=yes
+showDeviceFrame=no
+disk.dataPartition.size=2G
+CONFIG
+fi
+options=(-avd "$avd_name" -port "$port" -no-boot-anim -no-audio -camera-back none -camera-front none -gpu swiftshader)
+# Without a wheel-capable device Qt synthesizes an animated touchscreen swipe
+# per wheel tick. Expose an absolute mouse with a real wheel instead. Disable
+# the alternative mouse devices so pointer capture is not required.
+options+=(-feature VirtioTablet -feature -VirtioMouse -feature -VirtioDualModeMouse)
+if $headless || $mirror; then
+    options+=(-no-window)
+fi
+export QT_QPA_PLATFORM=xcb
+if $cold; then options+=(-no-snapshot-load); fi
+if $software; then options+=(-accel off); fi
+echo "Starting $serial; log: $log_file"
+TMPDIR="$run_dir" setsid emulator "${options[@]}" >"$log_file" 2>&1 </dev/null &
+emulator_pid=$!
+
+boot_timeout=180
+if $software; then boot_timeout=600; fi
+deadline=$((SECONDS + boot_timeout))
+echo 'Waiting for Android to finish booting…'
+until [[ $(timeout 3s adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true) == 1 ]]; do
+    if ! kill -0 "$emulator_pid" 2>/dev/null; then tail -n 40 "$log_file" >&2; fail "emulator exited; see $log_file"; fi
+    if ! kill -0 "$adb_pid" 2>/dev/null; then fail 'private adb server exited'; fi
+    if (( SECONDS >= deadline )); then tail -n 40 "$log_file" >&2; fail "Android did not boot within $boot_timeout seconds; see $log_file"; fi
+    sleep 1
+done
+install_app() {
+    adb -s "$serial" shell input keyevent KEYCODE_WAKEUP || return
+    adb -s "$serial" shell wm dismiss-keyguard || return
+    adb -s "$serial" install -r "$apk" || return
+    adb -s "$serial" shell am force-stop dev.jollymaam.app || return
+    adb -s "$serial" shell am start -W -n dev.jollymaam.app/.MainActivity
+}
+install_app
+if $mirror; then
+    echo "Opening scrcpy; log: $state_dir/scrcpy.log"
+    TMPDIR="$run_dir" ADB="$(command -v adb)" setsid scrcpy --serial "$serial" --no-audio --mouse=sdk --window-title 'Cyclone padtool' >"$state_dir/scrcpy.log" 2>&1 </dev/null &
+    scrcpy_pid=$!
+fi
+echo "Padtool launched on $serial (private adb port $adb_port)."
+echo 'Ctrl-C stops this session. Saved AVD/settings are kept.'
+if [[ -t 0 ]]; then
+    echo 'r + Enter: rebuild/reinstall; q + Enter: stop.'
+    while kill -0 "$emulator_pid" 2>/dev/null && { ! $mirror || kill -0 "$scrcpy_pid" 2>/dev/null; }; do
+        if IFS= read -r -t 1 action; then
+            case "$action" in
+                r) if build_app && install_app; then echo 'Reloaded.'; else echo 'Reload failed; fix the error and press r + Enter to retry.' >&2; fi ;;
+                q) exit 0 ;;
+            esac
+        fi
+    done
+fi
+if ! $mirror || ! kill -0 "$emulator_pid" 2>/dev/null; then
+    wait "$emulator_pid"
+elif ! kill -0 "$scrcpy_pid" 2>/dev/null; then
+    wait "$scrcpy_pid"
+else
+    # Closing scrcpy must also stop the otherwise windowless emulator.
+    wait -n "$emulator_pid" "$scrcpy_pid"
+fi

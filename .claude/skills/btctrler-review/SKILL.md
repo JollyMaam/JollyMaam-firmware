@@ -53,7 +53,7 @@ commits, SDK member occurrences/hashes, exact exports/globals/sections,
 corrections and evidence, preserved BR23 behavior, BD19 SDK quirks, validation
 commands/results, image comparison, remaining uncertainty and revisits. Use a
 body file for multiline git messages. A chat report does not replace this.
-Update `src/btctrler/revisit-bd19.md` with new consolidation
+Update `src/platform/jieli/btctrler/revisit-bd19.md` with new consolidation
 candidates, deferred app fixes, likely SDK bugs and unresolved behavior. Link
 each entry to source/functions and durable commit/IR evidence; label inherited
 BR23 observations that have not been confirmed on BD19. Do not leave corrected
@@ -82,8 +82,8 @@ commit bodies, but do not merge that app branch. Migration provenance is in
 
 For this controller-only migration validate with `make -j32 controller-objects
 controller-test test controller-layouts controller-tools-test controller-audit`
-and `make controller-compare`. Four-product app targets are on the preserved
-application branch, not this branch. A source in `src/btctrler/` compiles for
+and `make controller-compare`. main is merged in; worktrees need the make
+variables in tools/btctrler/vanilla-migration.md. A source in `src/platform/jieli/btctrler/` compiles for
 both chips (`CONFIG_CPU_BD19` selects chip differences); `bd19/` holds BD19-only
 sources. A shared-source change must leave the BR23 firmware image unchanged
 unless the change is meant for BR23 too.

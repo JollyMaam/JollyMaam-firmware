@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JollyMaam</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="actions">
+    <button id="back" type="button" class="secondary" hidden>Back</button>
+    <h1>JollyMaam</h1>
+  </div>
+  <div id="savebar" hidden>
+    <span id="savecount"></span>
+    <button id="undo" type="button" class="secondary">Discard</button>
+    <button id="save" type="button">Save</button>
+  </div>
+</header>
+<main>
+  <section id="home">
+    <div class="choices">
+      <button id="managefw" type="button" class="choice" hidden><strong>Manage Firmware</strong></button>
+      <button id="connect" type="button" class="choice"><strong>Configure over Bluetooth</strong>
+        <span>Hold Home+M for 3 s to put the pad in config mode, then choose it.</span></button>
+      <button id="connectusb" type="button" class="choice"><strong>Configure over USB</strong>
+        <span>Plug the pad in, then choose it.</span></button>
+    </div>
+    <div id="homelist" hidden>
+      <div class="listhead"><h2>Devices</h2>
+        <label class="check">Bluetooth <input type="checkbox" class="switch bleswitch"></label></div>
+      <div id="homedevices" class="choices one"></div>
+    </div>
+  </section>
+  <section id="manage" hidden>
+    <div class="choices cards">
+      <button id="doinstall" type="button" class="choice"><strong>Install</strong></button>
+      <button id="dobackup" type="button" class="choice"><strong>Backup</strong></button>
+      <button id="doupgrade" type="button" class="choice"><strong>Upgrade</strong></button>
+      <button id="dorestore" type="button" class="choice"><strong>Restore</strong></button>
+      <button id="loadpkg" type="button" class="choice"><strong>Load Package</strong><span id="loadpkginfo"></span></button>
+    </div>
+    <p id="managenote" class="muted"></p>
+    <div class="listhead"><h2>Devices</h2>
+      <label class="check">Bluetooth <input type="checkbox" class="switch bleswitch"></label></div>
+    <p id="blenote" class="muted"></p>
+    <div id="managedevices" class="choices one"></div>
+    <details><summary>Getting a pad ready</summary><div id="padhow"></div></details>
+    <input id="package" type="file" accept=".zip,application/zip" hidden>
+  </section>
+  <section id="action" hidden>
+    <h2 id="actiontitle"></h2>
+    <p id="actiondevice" class="muted"></p>
+    <div id="actionbody"></div>
+    <div id="padjob" hidden>
+      <p class="pending"><span class="spinner" aria-hidden="true"></span><span id="padstep"></span></p>
+      <progress id="flashprogress" max="1" value="0"></progress>
+      <p class="muted">Keep the pad plugged in.</p>
+    </div>
+    <p id="actionresult" role="status"></p>
+    <details id="flashdetails"><summary>Details</summary><pre id="flashlog" class="mono"></pre></details>
+  </section>
+  <section id="config" hidden>
+  <section id="identity"></section>
+  <p id="status" class="muted"></p>
+  <details id="firmware" hidden>
+    <summary>Firmware update</summary>
+    <p class="muted">A firmware package (firmware.zip, from <code>make firmware</code>) has an update
+      for each pad; the page takes this pad's, restarts the pad into its updater, writes it and
+      starts it.</p>
+    <p class="package"><span id="pkginfo"></span></p>
+    <p id="fwinfo" class="muted"></p>
+    <div class="actions">
+      <button id="fwload" type="button" class="secondary">Load package…</button>
+      <button id="update" type="button" disabled>Update</button>
+    </div>
+    <progress id="fwprogress" max="1" value="0" hidden></progress>
+    <pre id="fwlog" class="mono"></pre>
+  </details>
+  <details id="tests" hidden>
+    <summary>Link tests</summary>
+    <p class="muted">Write sizes: sends the most data a command takes, in 20- and 96-byte writes, as
+      settings for a target that does not exist (nothing is staged), and checks the pad parsed all of it.
+      Updater round trip: restarts the pad into its updater, connects again without the chooser,
+      reads it, and reboots it back into its app (the link ends).</p>
+    <div class="actions">
+      <button id="writetest" type="button" class="needs-pad">Write sizes</button>
+      <button id="updatertest" type="button" class="needs-pad">Updater round trip</button>
+    </div>
+    <pre id="testlog" class="mono"></pre>
+  </details>
+  <section id="settings"></section>
+  </section>
+</main>
+<div id="toast" role="status" hidden></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

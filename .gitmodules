@@ -1,0 +1,13 @@
+[submodule "external/bluekitchen-btstack"]
+	path = external/bluekitchen-btstack
+	url = https://github.com/EBADBEEF/btstack
+	branch = master
+[submodule "external/telink-tc_ble_simple_sdk"]
+	path = external/telink-tc_ble_simple_sdk
+	url = https://github.com/telink-semi/tc_ble_simple_sdk
+	branch = master
+[submodule "external/jieli-fw-AC63_BT_SDK"]
+	path = external/jieli-fw-AC63_BT_SDK
+	url = https://github.com/Jieli-Tech/fw-AC63_BT_SDK
+	branch = master
+	shallow = true

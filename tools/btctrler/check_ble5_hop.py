@@ -47,7 +47,7 @@ oracle = '''@config_btctler_le_features = constant i64 16384
 define i32 @__get_ble_anchor_con(i16* %hw, i8 %idx) { ret i32 64 }
 define void @oracle_hop(i16* %arg0) {
 ''' + body + '\n}\n'
-source = (root / 'src/btctrler/bd19/RF_ble5.c').read_text()
+source = (root / 'src/platform/jieli/btctrler/bd19/RF_ble5.c').read_text()
 owned = re.search(r'^BLE5_CODE void repair_algorithm2_hop\([^\n]*\n.*?^}', source, re.M | re.S)[0]
 owned = owned.replace('BLE5_CODE ', '')
 model = '''#include <stdint.h>

@@ -26,7 +26,7 @@ args = parser.parse_args()
 if not args.clang:
     parser.error('pass --clang PATH to a host clang')
 raw = (root / 'build/controller-ir/bd19/01--bredr_frame.c.o.ll').read_text()
-source = (root / 'src/btctrler/bd19/bredr_frame.c').read_text()
+source = (root / 'src/platform/jieli/btctrler/bd19/bredr_frame.c').read_text()
 
 
 def sdk_function(name):

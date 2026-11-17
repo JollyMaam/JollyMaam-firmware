@@ -1,7 +1,7 @@
 # Clean BR23/BD19 controller baseline
 
 The working branch is `btctrler/br23-bd19-vanilla`, based directly on
-`btctrler-decompiled` at `44d0073`. Its checkout is
+`btctrler-decompiled` at `44d0073`, with `main` merged in. Its checkout is
 `/work/cyclone2-fw-btctrler-vanilla`. The application integration remains
 preserved on `btctrler/bd19-support` at `7cae22b`; do not merge that branch
 here, because doing so would import later application changes.
@@ -18,7 +18,7 @@ All 74 accepted BD19 members are carried forward, supplying 908 public
 functions and 67 globals through 79 source files. The retained archive still
 contains 37 members and 1162 verified index entries. Original member hashes,
 occurrence identities and ownership groups are preserved; paths are adapted
-to this branch's `src/btctrler/` layout. Original reports and provenance remain
+to this branch's `src/platform/jieli/btctrler/` layout. Original reports and provenance remain
 in the commit bodies on `btctrler/bd19-support`; imported review notes and
 revisit IDs are historical evidence, not claims of app-image validation here.
 
@@ -39,7 +39,7 @@ the initial three-way transplant (`link_layer`, `ll_slave`, `lmp_hci_pairing`,
 `thread`). The final BD19 production IR still matches the previous recovery.
 
 Consolidated afterwards: the 46 `bd19/shared/` sources with a BR23 counterpart
-replaced it in `src/btctrler/`; the two without one moved to `bd19/`. Checked
+replaced it in `src/platform/jieli/btctrler/`; the two without one moved to `bd19/`. Checked
 by unchanged BD19 objects (function bodies and globals) and a byte-identical
 BR23 firmware image (same-length BUILD_ID). In BR23 objects they add
 BD19-checked definitions the BR23 decompilation had left out (unlinked there),
@@ -55,42 +55,38 @@ This verifies preservation through migration; it does not replace the prior
 member reviews or prove whole-program equivalence. Reports are also stored
 under `/work/analysis/btctrler-vanilla-migration/` in this environment.
 
+## Merged with main
+
+`main` is merged in (its `7e90217` squash of `44d0073` is recorded as merged).
+The controller lives at `src/platform/jieli/btctrler/`; `tools/btctrler/vanilla.mk`
+uses `src/make/jieli.mk`'s chip toolchains. main's app still links the SDK
+`btctrler.a` for BD19 (Nova 2 Lite dongle). main's own controller changes
+are under `BTCTRLERMOD` (glue.h): on for BR23, off for BD19, whose objects stay
+as audited until those changes are tested on its hardware.
+
 ## Dependencies and validation
 
-Read-only SDK/toolchain inputs are located at:
-
-- `external/jieli-fw-AC63_BT_SDK` (pinned BR23/BD19 archive hashes checked).
-- `external/toolchains/jieli-linux-toolchains-20250324.1`.
-- `external/bluekitchen-btstack` (only needed for the historical app build).
-
-`external/` is ignored. This checkout currently uses symlinks to the existing
-integration's dependencies. Fresh worktrees can link these same read-only
-inputs or provision independent copies. Never edit them or change refs there.
-
-Run from this worktree:
+`external/` holds main's submodules. In a worktree, point make at the main
+checkout's copies instead of fetching them; `tools/controller.py` reads
+`JIELI_SDK` from the environment (vanilla.mk exports it):
 
 ```
-PATH=/work/bin:$PATH make -j32 controller-objects controller-test test \
-  controller-layouts controller-tools-test controller-audit
-PATH=/work/bin:$PATH make controller-compare
+E=/work/cyclone2-firmware/external
+V="JIELI_SDK=$E/jieli-fw-AC63_BT_SDK BTSTACK=$E/bluekitchen-btstack TELINK_SDK=$E/telink-tc_ble_simple_sdk/b80_ble_sdk"
+PATH=/work/bin:$PATH make -j32 $V controller-objects controller-test \
+  controller-layouts controller-tools-test controller-audit test
+PATH=/work/bin:$PATH make $V controller-compare
 PATH=/work/bin:$PATH python3 tools/btctrler/check_uecc.py
 ```
 
-Validation passes: both target compilers, both host suites (193 `: ok` reports
-and 12 legacy reports), both layouts, 31 tooling tests, 73 ownership groups,
-retained archive content/order/index verification, cross-chip census and 740
-independent curve checks. The historical BR23 inspector is preserved as
-`legacy_archive.py` while the new occurrence-aware archive tooling handles
-BD19. Ownership/review skills now target this worktree and require complete
-reports in commit bodies and removal of completed worker worktrees/branches.
-
-This branch provides controller builds/audits, not the newer four-product
-application build. No firmware flashing or hardware validation was performed.
+`controller-test` runs the BD19 builds of the controller tests; `test` (main's
+host tests) runs the BR23 builds. No firmware with the BD19 controller has
+been flashed or tested on hardware.
 
 ## Next work
 
-Continue the 37 retained BD19 members from this clean branch, one worker at a
-time when requested. Use the rebuilt reuse census before assigning a member.
+To run our controller on BD19 in the app: drop `btctrler.a` from
+`JIELI_BD19_ARCHIVES`, add the bd19.json sources to the BD19 images, and test
+on the dongle. Then decide per `BTCTRLERMOD` change whether BD19 takes it.
 Further consolidation means the dedicated `bd19/` sources whose BR23
 counterparts are close (see the reuse census); keep the BR23 image unchanged.
-Track stricter SDK-purity changes separately from migration and source sharing.

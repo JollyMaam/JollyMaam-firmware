@@ -11,7 +11,7 @@ import tempfile
 from .archive import read_archive, sha256
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTROLLER = 'src/btctrler/'
+CONTROLLER = 'src/platform/jieli/btctrler/'
 MANIFEST = ROOT / 'tools/btctrler/bd19.json'
 CHIPS = {
     'br23': ('pi32v2', 'f63db0097b5d41096b3228ca038898f317694d6d293d1ba48beddfab85778869'),
@@ -21,7 +21,8 @@ CHIPS = {
 
 def paths(chip):
     target, expected = CHIPS[chip]
-    sdk = ROOT / f'external/jieli-fw-AC63_BT_SDK/cpu/{chip}/liba/btctrler.a'
+    # JIELI_SDK (as for make) points a worktree at another checkout's SDK.
+    sdk = ROOT / os.environ.get('JIELI_SDK', 'external/jieli-fw-AC63_BT_SDK') / f'cpu/{chip}/liba/btctrler.a'
     tools = ROOT / f'external/toolchains/jieli-linux-toolchains-20250324.1/{target}/bin'
     return sdk, tools, target, expected
 

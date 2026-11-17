@@ -176,7 +176,7 @@ uint64_t run_helper(uint32_t mode, uint32_t control, uint8_t enable,
 def run(out):
     q32 = root / 'external/toolchains/jieli-linux-toolchains-20250324.1/q32s/bin/clang'
     subprocess.run([str(q32), '-target', 'q32s', '-x', 'ir', '-S', '-emit-llvm',
-                    str(root / 'build/vanilla-bd19/src/btctrler/bd19/RF_ble.o'), '-o', str(out / 'owned.ll')], check=True)
+                    str(root / 'build/vanilla-bd19/src/platform/jieli/btctrler/bd19/RF_ble.o'), '-o', str(out / 'owned.ll')], check=True)
     (out / 'driver.c').write_text(driver)
     libs, helper_libs = [], []
     for helpers in [False, True]:

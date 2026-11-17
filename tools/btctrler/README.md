@@ -3,7 +3,7 @@
 The first accepted batch and its validation are recorded in
 [review-notes.md](review-notes.md). Deferred consolidation, SDK quirks and
 application-fix candidates are tracked in
-[revisit-bd19.md](../../src/btctrler/revisit-bd19.md).
+[revisit-bd19.md](../../src/platform/jieli/btctrler/revisit-bd19.md).
 New ownership and review commits must carry the complete report in the commit
 body; agent chat should identify the commit and immediate next action.
 
@@ -47,9 +47,9 @@ IR equality, or a renumbered diff for triage); build the `-Os` analysis
 object because the SDK archive was compiled with `-Os`:
 
 ```
-PATH=/work/bin:$PATH make build/vanilla-bd19-os/src/btctrler/bd19/FILE.o
+PATH=/work/bin:$PATH make build/vanilla-bd19-os/src/platform/jieli/btctrler/bd19/FILE.o
 python3 tools/btctrler/funccmp.py build/controller-ir/bd19/01--MEMBER.ll \
-  build/vanilla-bd19-os/src/btctrler/bd19/FILE.o [FUNCTION...] [-d]
+  build/vanilla-bd19-os/src/platform/jieli/btctrler/bd19/FILE.o [FUNCTION...] [-d]
 ```
 
 Original IR and inventories: `build/controller-ir/{br23,bd19}/`.
@@ -112,7 +112,7 @@ chip header. Regenerate BD19 types after inspecting the pinned archive:
 ```
 PATH=/work/bin:$PATH python3 tools/btctrler/sdktypes.py \
   --cc external/toolchains/jieli-linux-toolchains-20250324.1/q32s/bin/clang \
-  --target q32s src/btctrler/sdk_bd19.h \
+  --target q32s src/platform/jieli/btctrler/sdk_bd19.h \
   build/controller-ir/bd19/*.ll
 ```
 
@@ -124,7 +124,8 @@ Generated layout success does not establish runtime behavior.
 App changes since the original BR23 decompilation include AFH fixes,
 LL_VERSION_IND handling, role-switch dispatch/recovery, page-timeout fixes,
 cooperative scheduler initialization, sniff timing, framing checks, and
-`btctrlermod_` timing/QoS hooks. Preserve them on BR23. Audit `git log` and
-the affected source before porting each member; record BD19 decisions in its
-review notes. The original decompilation's object history and fingerprints
+`btctrlermod_` timing/QoS hooks. Preserve them on BR23. In a source both chips
+compile, such a change sits under `#if BTCTRLERMOD` (glue.h: 1 for BR23, 0 for
+BD19), so BD19 objects stay as audited. Audit `git log` and the affected source
+before turning one on for BD19; record BD19 decisions in its review notes. The original decompilation's object history and fingerprints
 are on `btctrler-decompiled`, not the implementation branch's build rules.

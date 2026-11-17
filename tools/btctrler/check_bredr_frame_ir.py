@@ -83,7 +83,7 @@ declare void @model_write32(i32*, i32)
 
 def run(args, out):
     env = dict(os.environ, PATH='/work/bin:' + os.environ.get('PATH', ''))
-    obj = ROOT / 'build/vanilla-bd19/src/btctrler/bd19/bredr_frame.o'
+    obj = ROOT / 'build/vanilla-bd19/src/platform/jieli/btctrler/bd19/bredr_frame.o'
     with (out / 'build.log').open('w') as log:
         subprocess.run(['make', str(obj.relative_to(ROOT))], cwd=ROOT, env=env,
                        stdout=log, stderr=subprocess.STDOUT, check=True)

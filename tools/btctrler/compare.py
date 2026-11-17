@@ -166,7 +166,7 @@ def owned_exports(board):
     directory = ROOT / 'build' / board
     sources = defaultdict(list)
     clang = paths('br23')[1] / 'clang'
-    objects = sorted((directory / 'src/btctrler').glob('*.o'))
+    objects = sorted((directory / 'src/platform/jieli/btctrler').glob('*.o'))
     if not objects:
         raise ValueError(f'no owned controller objects: build {board} first')
 

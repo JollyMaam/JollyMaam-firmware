@@ -1,0 +1,1297 @@
+#ifndef PAD_H
+#define PAD_H
+
+#include "../lib/proto_jollymaam_wire.h"
+
+#ifdef UNITTEST
+#include "test.h"
+#endif
+
+/* The SDK's own definitions, spelled out so that files using BTstack (which
+ * has its own bool) need no SDK header.  Identical typedefs may repeat.  A
+ * platform file that has its SDK's own (the Telink one, whose size_t differs
+ * from <stddef.h>'s) defines PAD_SDK_TYPES first. */
+#ifndef PAD_SDK_TYPES
+typedef unsigned char u8;
+typedef char s8;
+typedef unsigned short u16;
+typedef signed short s16;
+typedef unsigned int u32;
+typedef signed int s32;
+typedef long long s64;
+typedef unsigned long long u64;
+
+#include <stddef.h>
+#endif
+
+/* GCC before 4.6 (the Telink toolchain) has no _Static_assert. */
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ * 100 + __GNUC_MINOR__ < 406
+#define _Static_assert(e, m) extern char pad_static_assert[(e) ? 1 : -1]
+#endif
+
+/* Kept across a reset where the platform can: the log.  A platform without
+ * such RAM defines it empty. */
+#ifndef RETAINED
+#ifdef UNITTEST
+#define RETAINED
+#else
+#define RETAINED __attribute__((section(".retained"), used, aligned(4)))
+#endif
+#endif
+
+#define RGB(r,g,b) { r, g, b }
+struct rgb { u8 r, g, b; };
+/* A colour at full strength and how bright it is lit: tenths of the LEDs'
+ * smallest step, 0-2550 (10: 1 of 255). */
+struct shade { struct rgb rgb; u16 brightness; };
+
+#define SLOTS     8
+#define SLOT_NONE 0xff
+#define SLOT_LAST 0xfe
+
+/* ---- input.c ------------------------------------------------------------ */
+
+/* The pad's inputs by role.  The face buttons are named by where they sit,
+ * never by a letter: what is printed on them differs between pads (Xbox
+ * order: south A; Nintendo order: south B), and the profiles give each
+ * role the host's button for that place.  A pad with other buttons puts
+ * each on its own role, the nearest standard one first (board_pad.c).
+ * IN_*: the bit numbers, as the tools name inputs; PAD_*: the bits. */
+enum {
+    IN_SOUTH, IN_EAST, IN_SCREENSHOT, IN_WEST, IN_NORTH, IN_M, IN_L1, IN_R1,
+    IN_L4, IN_R4, IN_SELECT, IN_START, IN_HOME, IN_L3, IN_R3,
+    IN_UP = 16, IN_RIGHT, IN_DOWN, IN_LEFT,
+    IN_L2, IN_R2,                          /* the triggers pressed: set by in_triggers(), before the remap */
+    IN_LSTICK = 32, IN_RSTICK,             /* the sticks' axes: no bit */
+};
+enum {
+    PAD_SOUTH = 1 << IN_SOUTH, PAD_EAST = 1 << IN_EAST, PAD_SCREENSHOT = 1 << IN_SCREENSHOT,
+    PAD_WEST = 1 << IN_WEST, PAD_NORTH = 1 << IN_NORTH, PAD_M = 1 << IN_M,
+    PAD_L1 = 1 << IN_L1, PAD_R1 = 1 << IN_R1, PAD_L4 = 1 << IN_L4, PAD_R4 = 1 << IN_R4,
+    PAD_SELECT = 1 << IN_SELECT, PAD_START = 1 << IN_START, PAD_HOME = 1 << IN_HOME,
+    PAD_L3 = 1 << IN_L3, PAD_R3 = 1 << IN_R3,
+    PAD_UP = 1 << IN_UP, PAD_RIGHT = 1 << IN_RIGHT, PAD_DOWN = 1 << IN_DOWN, PAD_LEFT = 1 << IN_LEFT,
+    PAD_L2 = 1 << IN_L2, PAD_R2 = 1 << IN_R2,
+};
+#define PAD_FACE (PAD_SOUTH | PAD_EAST | PAD_WEST | PAD_NORTH)
+#define PAD_DPAD (PAD_UP | PAD_RIGHT | PAD_DOWN | PAD_LEFT)
+#define PAD_DIGITAL (0x7fffu | PAD_DPAD)  /* every button and direction; not the triggers */
+
+/* The d-pad as a host hat value, for formats that carry one. */
+enum { HAT_UP, HAT_UP_RIGHT, HAT_RIGHT, HAT_DOWN_RIGHT, HAT_DOWN, HAT_DOWN_LEFT,
+       HAT_LEFT, HAT_UP_LEFT, HAT_NEUTRAL };
+
+static inline u8 in_hat(u32 b)
+{
+    u32 right = b & PAD_RIGHT, left = b & PAD_LEFT;
+    if (b & PAD_UP) return right ? HAT_UP_RIGHT : left ? HAT_UP_LEFT : HAT_UP;
+    if (b & PAD_DOWN) return right ? HAT_DOWN_RIGHT : left ? HAT_DOWN_LEFT : HAT_DOWN;
+    return right ? HAT_RIGHT : left ? HAT_LEFT : HAT_NEUTRAL;
+}
+
+#define STICK_MAX   32767
+#define TRIGGER_MAX 65535u
+
+struct in_raw {
+    u32 buttons;
+    u8 sticks_valid;
+    u16 stick[4];
+    u16 trigger[2];
+    u8 trigger_stop[2];
+    u32 changed_us;              /* when a button or the d-pad last changed (plat_us) */
+    u8 pair_button;             /* dedicated Sync/Pair button, separate from host buttons */
+    u8 radio_24g;               /* a board's 2.4G/Bluetooth switch on 2.4G (the 8BitDo) */
+};
+
+struct imu_sample {
+    s16 accel[3];
+    s16 gyro[3];
+    u32 us;                      /* when it was read */
+};
+
+#define IMU_PER_REPORT 4
+
+struct pad {
+    u32 buttons;                 /* PAD_*: opposite d-pad directions cancel */
+    s16 lx, ly, rx, ry;
+    u16 l2, r2;
+    u8 imu_count;                /* samples new since the last report, oldest first */
+    struct imu_sample imu[IMU_PER_REPORT];
+    u8 jack;                     /* a plug in the headphone jack */
+    /* The gyro's zero-rate offset as learned so far (motion.c, or the pad
+     * through the link), 1/16 LSB; known 0: none yet. */
+    s32 gyro_bias[3];
+    u8 gyro_bias_known;
+};
+#define PAD_CONTROLS_SIZE ((u32)(size_t)&((struct pad *)0)->imu_count)
+
+/* Opposite d-pad directions cancel. */
+static inline u32 in_dpad(u32 b)
+{
+    if ((b & PAD_UP) && (b & PAD_DOWN)) b &= ~(u32)(PAD_UP | PAD_DOWN);
+    if ((b & PAD_LEFT) && (b & PAD_RIGHT)) b &= ~(u32)(PAD_LEFT | PAD_RIGHT);
+    return b;
+}
+
+void in_map(const struct in_raw *raw, struct pad *pad);
+int in_moved(const struct pad *now, const struct pad *ref);
+
+/* Each trigger's press (PAD_L2, PAD_R2), the one place a host's digital
+ * trigger is decided.  default (TRIGGER_ANALOG): pressed from the remap
+ * slot's press point, the analog value as calibrated; hair: the same, the
+ * analog value full while pressed and 0 otherwise; rapid: as hair, but once
+ * pressed it lets go as soon as the trigger rises a little and presses again
+ * as soon as it goes down a little, wherever it is.  The caller keeps the
+ * state, zeroed. */
+enum { TRIGGER_ANALOG, TRIGGER_HAIR, TRIGGER_RAPID };
+struct in_trigger {
+    u8 down;
+    u16 turn;                    /* rapid: the furthest point since the last change */
+};
+struct set_remap;
+/* m NULL: not pressed, as calibrated.  Before the remap, which passes the
+ * presses through. */
+void in_triggers(const struct set_remap *m, struct in_trigger t[2], struct pad *pad);
+/* After the remap and quick settings, the host's triggers' values: each
+ * physical trigger's goes where m's map sends it (another trigger, or none:
+ * a key or nothing), the further pulled winning; m NULL: each its own.  A
+ * host trigger pressed with no pressed trigger behind it (a key, a rule, a
+ * macro) goes all the way; one released with a pressed trigger behind it
+ * (taken by a macro, a turbo's off half) rests.  pressed: the presses
+ * in_triggers() made. */
+void in_triggers_after(const struct set_remap *m, u32 pressed, struct pad *pad);
+
+/* ---- motion.c, and the board's sensor -------------------------------------
+ * Samples are in the Cyclone 2's sensor units: gyro 16 LSB per degree per
+ * second, accelerometer 8192 per g. */
+
+enum { IMU_OFF, IMU_MOTION, IMU_GYRO };
+
+struct imu_pointer {
+    s64 motion[2];               /* what is left under a count */
+    u32 last_us;
+    u8 have;
+};
+
+/* The board's: advances its motion sensor (a board without one returns 0);
+ * returns its next deadline, 0 none. */
+u32 imu_poll(u32 now, u8 mode);
+void imu_store(const s16 accel[3], const s16 gyro[3]);   /* a sample from the sensor */
+int imu_take(u32 *seq, struct imu_sample *out, int max);
+int imu_gyro_bias(s32 out[3]);   /* the learned zero-rate offset, 1/16 LSB; 0: none yet */
+/* The gyro samples in a report as pointer counts, with the pad's gyro_bias;
+ * p carries what is left between calls. */
+void imu_pointer(struct imu_pointer *p, const struct pad *pad, u16 per_degree, u16 accel,
+                 s32 *x, s32 *y);
+
+/* ---- input_calibration.c ------------------------------------------------
+ * Sensor measurements only; deadzones (radial percentages) belong to the
+ * remap slot in use.  The measurement blob keeps its layout; legacy stick
+ * deadzones are ignored.  Trigger calibration is unchanged. */
+
+#define CAL_GATE_KNOTS 16
+
+struct cal_stick {
+    u16 minimum[2], center[2], maximum[2];
+    u16 gate[CAL_GATE_KNOTS];
+    u16 legacy_inner_deadzone, legacy_outer_deadzone;
+};
+
+struct cal_trigger { u16 rest, full, inner_deadzone, outer_deadzone; };
+
+struct cal_deadzone { u8 inner, outer; }; /* percent, each 0..25 */
+
+struct set_cal {
+    struct cal_stick stick[2];
+    struct cal_trigger trigger[2];
+};
+
+enum { CAL_IDLE, CAL_RUNNING, CAL_SAVE };
+
+/* deadzone: per stick, NULL none. */
+void cal_apply(const struct set_cal *cal, const struct cal_deadzone *deadzone,
+               const struct in_raw *raw, struct pad *pad);
+void cal_start(u32 now);
+int cal_step(const struct in_raw *raw, u32 now, struct set_cal *cal);
+int cal_led(u32 now, struct rgb *out);
+void cal_led_demo(u32 t, struct rgb *out);  /* its light t ms into a pretend run, over and over */
+
+/* ---- controller.c ------------------------------------------------------- */
+
+enum ctl_kind {
+    CTL_BOOT, CTL_IDLE, CTL_CONNECTING, CTL_PAIRING, CTL_CONNECTED,
+    CTL_STOPPING, CTL_SLEEPING, CTL_REBOOTING, CTL_KIND_COUNT,
+};
+
+enum req_kind {
+    REQ_NONE, REQ_CONNECT, REQ_PAIR, REQ_DISCONNECT, REQ_SLEEP, REQ_CALIBRATE,
+    REQ_REBOOT, REQ_REBOOT_LOADER, REQ_HOME_TAP, REQ_STATS_RESET,
+    REQ_RELINK,              /* connected: take the session down and connect it again */
+    REQ_REMAP,               /* connected: remap slot .slot, SLOT_NONE the base; kept until a disconnect, another slot or sleep */
+    REQ_LED_DEMO,                /* the lights show LED demo .slot (ux_led_demos), SLOT_NONE: stop */
+    REQ_RUMBLE,              /* the motors run at .motor (0-255 duty) for .ms, over the host's; 0 ms: stop */
+    REQ_RUMBLE_STEP,         /* quick settings L1/R1: .slot 0 lower, 1 raise the rumble step (RAM only) */
+    REQ_REBOOT_UPDATER,      /* reboot into the updater (src/updater/) */
+    REQ_CONFIG,              /* Home+M held: config mode, the settings over Bluetooth (not built: logged) */
+    /* Quick settings' layer (quick.c): .slot is the key, IN_*. */
+    REQ_QUICK_CLEAR,         /* Home or M held alone: the layer cleared, the slot's own remap again */
+    REQ_QUICK_TURBO,         /* a key's press: its next turbo step */
+    REQ_QUICK_RECORD,        /* M tapped, held with a key: record a macro for the key */
+    REQ_QUICK_RECORD_LOOP,   /* M tapped twice, held with a key: record a looping macro */
+    REQ_PRESS,               /* tool PRESS: .buttons held for .ms while connected (TOOL_PRESS) */
+};
+
+/* The tool's PRESS (usb.c): keys held as if pressed, after the Home
+ * gestures (no shortcut, no wake) and before the remap, for testing the
+ * remap and macros over USB.  A board short of RAM leaves it out. */
+#ifndef TOOL_PRESS
+#define TOOL_PRESS 1
+#endif
+
+struct ctl_request {
+    u8 kind;
+    u8 slot;
+    u8 generate_new_address;
+    u8 quiet;                /* a restart the pad made itself: it never wakes a host by USB */
+    u8 motor[2];             /* REQ_RUMBLE: left, right */
+    u16 ms;                  /* REQ_RUMBLE, REQ_PRESS */
+#if TOOL_PRESS
+    u32 buttons;             /* REQ_PRESS: PAD_* digital keys; 0 lets go */
+#endif
+};
+
+#define RUMBLE_TEST_MAX_MS 10000
+
+void ctl_main(void);
+
+/* ---- bt_pad.c (the board's Bluetooth on BTstack) ------------------------ */
+
+/* BT_8BITDO: not Bluetooth; the stock 8BitDo receiver's 2.4 GHz link
+ * (the 8BitDo board's platform, profile_8bitdo.c). */
+enum { BT_CLASSIC, BT_LE, BT_8BITDO };
+
+struct bt_bond {
+    u8 peer[6];                  /* least significant byte first; all zero: none */
+    u8 link_key[16];
+    u8 key_type;
+    u8 le_peer[6];
+    u8 ltk[16];
+    /* The host's identity from pairing; with ltk restores a Secure
+     * Connections bond to BTstack.  BTstack leaves these zero for legacy
+     * pairing, whose key it derives again.  Telink also keeps them for
+     * legacy pairing; without identity distribution le_id/le_id_type keep
+     * the connection address and type so it can restore a public host. */
+    u8 le_irk[16];
+    u8 le_id[6];                 /* least significant byte first */
+    u8 le_id_type;
+};
+
+struct bt_device {
+    u8 transport;
+    const char *name;
+    /* Classic */
+    u32 class_of_device;
+    u16 vendor_id, product_id, version;
+    const u8 *hid_descriptor;
+    u16 hid_descriptor_len;
+    u16 sniff_slots, sniff_attempt;
+    /* LE */
+    const u8 *att_db;
+    u16 input_handle;
+    u8 (*advertising)(const struct bt_bond *bond, int pairing, int wake, u8 out[31]);
+    const u8 *scan_response;
+    u8 scan_response_len;
+    const u8 *sm_er, *sm_ir;     /* security manager keys: NULL, no SMP */
+    /* The host uses fixed handles (Switch 2): a stack that puts its own GAP
+     * and GATT first (the YC3121's core) moves them to att_gap + 1.. and
+     * gives the profile's attributes their own handles.  0: discovered. */
+    u16 att_gap;
+    /* B80 only (att_telink.c): an ATT write handled at once, in the stack's
+     * callback, its response sent after; an ATT error code or 0.  NULL: the
+     * write goes to the control loop (BT_EV_WRITE). */
+    int (*write_now)(u16 handle, const u8 *data, u16 len);
+    u16 interval_min, interval_max;   /* asked for once encrypted (else the slot's), or */
+    u8 unencrypted;                   /* when notifications start if never (config mode) */
+    /* B80 only: a write request's response waits until the control loop has
+     * taken the write, so the host's next write finds room (config mode,
+     * whose commands may take a while).  Not where writes without response
+     * come meanwhile: the server drops requests while a response waits. */
+    u8 write_paced;
+};
+
+/* A host write, from Bluetooth or USB: an output or feature report (id: its
+ * report id, data without it), an ATT write (id: the handle), or a USB bulk
+ * transfer (Switch 2's command pipe).  The kinds also name what a profile's
+ * read() answers; BT_WRITE_VENDOR only there: a USB vendor request on EP0
+ * (id: bRequest, offset: wValue; max 0 for one without data to the host,
+ * accepted when read() returns 0). */
+#ifndef BT_WRITE_MAX                 /* a build may take longer ones (the U2CB's updater) */
+#define BT_WRITE_MAX 96
+#endif
+enum { BT_WRITE_OUTPUT, BT_WRITE_FEATURE, BT_WRITE_ATT, BT_WRITE_BULK, BT_WRITE_VENDOR };
+struct bt_write {
+    u8 kind;
+    u16 id;
+    u16 len;
+    u8 data[BT_WRITE_MAX];
+};
+
+enum { BT_EV_NONE, BT_EV_LINKED, BT_EV_UNLINKED, BT_EV_FAILED, BT_EV_STOPPED,
+       BT_EV_PEER, BT_EV_BONDED, BT_EV_PAIRED, BT_EV_WRITE };
+
+struct bt_ev {
+    u8 kind;
+    u8 lost;                     /* BT_EV_UNLINKED: the signal went, not the host */
+    u8 reason;                   /* HCI disconnect reason */
+    struct bt_bond bond;         /* PEER, BONDED, PAIRED; LINKED may supply le_peer */
+    struct bt_write write;       /* BT_EV_WRITE */
+};
+
+/* How the link is asked to run, from the slot's settings; 0 in a field: the
+ * profile's or the stack's own. */
+struct bt_link {
+    u16 le_interval_min, le_interval_max;    /* 1.25 ms units, requested after encryption */
+    u8 le_phy;               /* 0 leave it; 1 ask for 2M */
+    u8 in_flight;            /* input reports in the controller at once */
+    u16 poll_us;             /* Classic: Best Effort poll interval requested (us) */
+    u8 tx_power;             /* 0-5 shown as 1-6: the controller's steps 0-4, then
+                                step 4 from its pro table */
+    u16 sniff_max, sniff_min; /* Classic: ask the host for sniff (slots); 0: don't */
+    u8 edr3_off;             /* Classic: no 3 Mbit/s EDR packets */
+    u16 jit_us;              /* lead before the anchor a report is for: 0 adaptive, 1 none (when asked) */
+};
+
+struct profile;
+void bt_start(const struct profile *p, const u8 address[6], const struct bt_bond *bond,
+              int pairing, const struct bt_link *link);
+void bt_stop(void);                       /* asynchronous; BT_EV_STOPPED when the session is down */
+void bt_abort(void);
+void bt_connect(void);                    /* explicit connection attempt; may wake the paired host */
+void bt_drop(void);                       /* end the link, keep the session: it advertises again */
+int bt_send_input(u8 id, const u8 *data, u16 len);
+int bt_send_message(u16 id, const u8 *data, u16 len);
+int bt_poll(struct bt_ev *ev);
+int bt_radio_quiet(void);
+int bt_input_pending(void);
+int bt_input_wanted(void);
+u32 bt_input_wanted_us(void);            /* when it became wanted (plat_us), 0: not wanted */
+u32 bt_input_due_us(void);               /* when to build it (plat_us, jit_us), 0: not wanted */
+void bt_update_bond(const struct bt_bond *bond);
+struct bt_stats;
+void bt_stats(struct bt_stats *out);
+struct bt_timing;
+void bt_timing(struct bt_timing *out, int reset);
+
+/* ---- profile_*.c -------------------------------------------------------- */
+
+struct set_slot;
+struct profile_session {
+    u8 slot;
+    u8 pairing;
+    u8 address[6];
+    const struct bt_bond *bond;
+    const struct set_slot *settings;
+    u8 usb;                      /* the session is a wired one: USB report formats */
+};
+
+/* One profile runs at a time, so the profiles' session state shares one
+ * block (utils.c): `#define xb PROFILE_STATE(struct xb_state)`, with a
+ * _Static_assert that it fits.  begin() clears it, end() is the last
+ * access; nothing in it outlives the session. */
+#define PROFILE_RAM 96
+extern u8 profile_ram[PROFILE_RAM];
+static inline void *profile_state(void) { return profile_ram; }   /* no type-pun warning */
+#define PROFILE_STATE(type) (*(type *)profile_state())
+#define PROFILE_STATE_AT(type, member) (profile_ram + offsetof(type, member))   /* for initializers */
+
+struct profile_host {
+    u8 rumble[2];
+    u8 has_players, players, players_flash;
+    u8 has_lightbar;
+    u8 lightbar[3];
+    u8 imu;
+    u8 ended;                    /* host ended this session: stop locally */
+};
+
+/* A profile that can be a wired controller too describes its USB device; the
+ * platform builds the descriptors from it.  kind: the interfaces it has. */
+enum { USB_HID, USB_XINPUT, USB_HID_BULK };
+/* audio: the stock pad's speaker, only while a plug is in the jack; or the
+ * Switch 2 Pro Controller's headphones and microphone, always there, each
+ * function behind an interface association. */
+enum { USB_AUDIO_NONE, USB_AUDIO_SPEAKER, USB_AUDIO_HEADSET };
+/* A slot's usb_audio: the sound card while a plug is in the jack (USB comes
+ * back with or without it as that changes), always, or never. */
+enum { USB_SOUND_JACK, USB_SOUND_ON, USB_SOUND_OFF };
+/* Our own devices (the tool device, the dongle's hub): V-USB's shared ID
+ * for generic HID (usbdrv/USB-IDs-for-free.txt), told apart by the
+ * manufacturer string and the usage page; the generic gamepad: its shared
+ * joystick ID.  Its rules want a domain or an e-mail address in the
+ * string: not there yet. */
+#define USB_MANUFACTURER "JollyMaam"
+/* The tool device's product string is board_name, then this in the updater. */
+#ifdef MAIN_AT
+#define USB_PRODUCT_TAIL " Update"
+#else
+#define USB_PRODUCT_TAIL ""
+#endif
+#define USB_OWN_VID      0x16c0
+#define USB_OWN_HID_PID  0x05df
+#define USB_OWN_JOYSTICK_PID 0x27dc
+
+struct usb_identity {
+    u16 vendor_id, product_id, bcd_device;
+    const char *manufacturer, *product, *serial;   /* ASCII; NULL: none */
+    u8 kind;
+    u8 report_ids;               /* HID: the first byte each way is the report id */
+    u8 interval;                 /* interrupt endpoints, ms */
+    u8 in_size, out_size;        /* their packet sizes; out_size 0: no OUT endpoint */
+    u8 max_power;                /* 2 mA units */
+    u8 audio;                    /* USB_AUDIO_*: a sound card beside it, on a board with one */
+    const u8 *hid_descriptor;
+    u16 hid_descriptor_len;
+};
+
+#define PROFILE_REPORT_MAX 80        /* the largest report a profile builds */
+
+struct profile {
+    const char *name;
+    const struct bt_device *device;
+    const struct usb_identity *usb;    /* NULL: Bluetooth only */
+    u8 (*begin)(const struct profile_session *s);
+    void (*end)(void);
+    int (*report)(const struct pad *pad, u32 now, u8 *out, u8 *id);   /* out: PROFILE_REPORT_MAX */
+    int (*write)(const struct bt_write *w, u32 now, struct bt_bond *bond);
+    void (*host)(u32 now, struct profile_host *out);
+    int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max);
+    const struct profile_wake *wake;   /* before connecting a bonded slot */
+};
+
+/* A profile's message to the host (a reply, a separate report), over the
+ * session's transport, never dropped while there is room.  HOST_BULK in id:
+ * USB bulk IN (Switch 2's command pipe).  The pad's controller.c and the
+ * dongle's dongle.c each have one. */
+#define HOST_BULK 0x8000
+int host_send(u16 id, const u8 *data, u16 len);
+
+/* Runs before bt_start() with the radio otherwise quiet.  before_page 0:
+ * once, after a page failed; 1: before every page of a connect started by
+ * hand (Home, the console command), retries too, never a pad-made one. */
+struct profile_wake {
+    int (*start)(const struct profile_session *s);   /* 0 started, <0 nothing to wake */
+    int (*step)(u32 now, u32 *next);  /* 1 finished; else call again at *next */
+    void (*stop)(void);
+    u8 before_page;
+};
+
+extern const struct profile profile_switch, profile_switch2, profile_xbox, profile_xbox_ble;
+extern const struct profile profile_8bitdo;    /* the stock 8BitDo receiver (BT_8BITDO) */
+extern const struct profile profile_ds5, profile_ds5edge, profile_ds4, profile_generic, profile_mouse,
+    profile_generic_ble, profile_link, profile_ds5edge_ble,
+    profile_config;              /* config mode: no slot's (profile_config.c) */
+void profile_config_address(u8 out[6]);     /* config mode's LE address: the updater's */
+void profile_config_service(void);          /* config mode: on the control loop, after its writes */
+/* The board's name and a tail as an LE scan response, zeros after
+ * (profile_hid.c): one buffer for whichever profile runs.  Returns its length. */
+extern u8 profile_scan_response[31];
+u8 profile_scan_name(const char *tail);
+extern const struct profile_wake plat_switch_wake;
+/* Switch 1 raw wake packets: whitening state 0..31, parity and payload.
+ * Returns the whitening seed the radio must use for this packet. */
+#define SWITCH1_WAKE_BODY 339
+#define SWITCH1_WAKE_STATES 32
+u8 switch1_wake_packet(const u8 address[6], u8 state, u8 parity[5], u8 body[SWITCH1_WAKE_BODY]);
+/* The YC3121 Switch 1 wake command payload, using the slot's bond. */
+void switch1_wake_command(const struct bt_bond *bond, u8 out[36]);
+/* The Switch 2 wake advert (31 bytes) naming the console (least
+ * significant byte first), as the controller with that product ID sends it. */
+u8 switch2_wake_advert(const u8 console[6], u16 product, u8 out[31]);
+/* The profile for a slot type (PROFILE_*, settings.c); NULL for none.  In
+ * profile_link.c, which both boards build. */
+const struct profile *profile_for(u8 type);
+
+/* ---- settings.c --------------------------------------------------------- */
+
+/* Stored and sent by number, and the order the tools list them in: reordering
+ * changes what a stored type means. */
+enum { PROFILE_SWITCH, PROFILE_SWITCH2, PROFILE_XBOX, PROFILE_XBOX_BLE, PROFILE_DS5,
+       PROFILE_DS5EDGE, PROFILE_DS5EDGE_BLE, PROFILE_DS4, PROFILE_GENERIC, PROFILE_GENERIC_BLE,
+       PROFILE_MOUSE, PROFILE_NONE, PROFILE_COUNT };
+/* Which wireless host a slot has: none; Bluetooth (the radio type's own
+ * device); or our dongle, which is the radio type on its USB port.
+ * RADIO_RECEIVER is no setting: the 8BitDo's rear switch on 2.4G makes every
+ * session the stock receiver's (controller_lite.c), whatever the slot says. */
+enum { RADIO_OFF, RADIO_BLUETOOTH, RADIO_DONGLE, RADIO_RECEIVER };
+/* The types with a USB half (a profile's .usb): what a cable or our dongle
+ * can show; the mouse is Bluetooth only.  The settings take these; the
+ * controller and the dongle still check .usb. */
+#define PROFILE_USB_TYPES (((1u << PROFILE_COUNT) - 1) & ~(1u << PROFILE_MOUSE | 1u << PROFILE_NONE))
+
+/* What this board can run, settings.c: a radio and type pair, a USB type
+ * (PROFILE_NONE: off, always fine). */
+int set_radio_ok(u8 radio, u8 type);
+int set_usb_ok(u8 type);
+/* The host behind a slot's address and bond: a Bluetooth type, or the dongle
+ * whatever it shows (0xff).  Off keeps the Bluetooth one. */
+static inline u8 set_radio_host(u8 radio, u8 type)
+{
+    return radio == RADIO_DONGLE ? 0xff : type;
+}
+enum { GRIPS_OFF, GRIPS_HOST, GRIPS_FADE, GRIPS_RUMBLE, GRIPS_INPUT, GRIPS_BOTH,
+       GRIPS_PRIMARY, GRIPS_SECONDARY, GRIPS_RAINBOW, GRIPS_HEARTBEAT };
+enum { PLAYERS_OFF, PLAYERS_HOST, PLAYERS_FADE, PLAYERS_PRIMARY, PLAYERS_SECONDARY, PLAYERS_RAINBOW };
+
+#define PALETTE 16
+
+/* How bright each kind of light is, for the whole pad (the palette's
+ * settings): tenths of the LEDs' smallest step (10: 1 of 255). */
+struct set_brightness {
+    u16 steady;              /* Home and the player lights connected, steady grips */
+    u16 animation;           /* animated grips and player lights */
+    u16 connect;             /* connecting and pairing */
+    u8 dither_ms;            /* dim lights between steps: refresh this often; 0 off */
+};
+
+/* Curves are tool-defined point arrays; disabling retains the saved points
+ * and passes calibrated input through exactly. */
+#define STICK_CURVE_POINTS 15
+
+/* A slot: a wireless host (radio, radio_type) and what a USB host on the
+ * cable sees (usb_type).  A USB host there wins: USB when usb_type is set and
+ * a host talks on the bus, else the radio. */
+#ifndef SLOT_SWITCH2_WAKE
+#define SLOT_SWITCH2_WAKE 0      /* the switch2_wake slot setting (board rules.mk) */
+#endif
+struct set_slot {
+    u8 radio_type;           /* PROFILE_*: what the Bluetooth host, or the dongle's USB host, sees */
+    u8 radio;                /* RADIO_* */
+    u8 connect_colour;                   /* palette entries: connecting, pairing; which slot */
+    u8 primary_colour;                   /* connected */
+    u8 secondary_colour;                 /* the background */
+    u8 grips;
+    u8 players;
+    /* Not stored with the slot: a session's copy takes them from its remap slot. */
+    u8 variant;              /* mouse: 0 games, 1 desktop */
+    u16 stick_speed;         /* mouse: pointer counts per second, stick all the way */
+    u16 gyro_speed;          /* mouse, touchpad: counts per degree turned; 0 off */
+    u16 gyro_accel;          /* percent of gyro_speed for fast turns */
+    u8 address[6];           /* zero: derived */
+    struct bt_bond bond;
+    u16 report_hz;           /* the most reports a second; 0: REPORT_HZ */
+    u16 pull_delay_us;       /* build a pulled report this long after bt_pad.c asks */
+    struct bt_link link;
+    u8 remap;                /* the remap slot each connect starts with: 0 none, 1-8 slots south-right */
+    u8 usb_audio;            /* USB_SOUND_*: the personality's sound card on USB */
+    u8 usb_type;             /* PROFILE_*: what a USB host on the cable sees; PROFILE_NONE: no USB */
+#if SLOT_SWITCH2_WAKE
+    /* A Switch 2 controller's wake advert, learnt from a Joy-Con 2: its
+     * address (least significant byte first) and product ID (little
+     * endian).  A switch slot sends the advert from it before paging. */
+    u8 switch2_wake[8];
+#endif
+};
+
+
+#define RUMBLE_STEPS 5
+
+/* A remap slot: the simple map, then rules for the keys that need more.
+ * Inputs and outputs are PAD_* bit numbers (0-21, not 15): the keys and the
+ * triggers' presses.  A trigger mapped to a trigger takes its analog value
+ * along (in_triggers_after). */
+#define REMAP_NAME   24
+#define REMAP_INPUTS 22
+#define REMAP_KEYS   (PAD_DIGITAL | PAD_L2 | PAD_R2)
+#ifndef REMAP_RULES
+#define REMAP_RULES  16          /* a board short of RAM keeps fewer (make/<product>.mk) */
+#endif
+#define REMAP_OFF    0xff        /* map: the key sends nothing */
+#define REMAP_TO(in) ((u8)((in) + 1))   /* map: the key sends IN_* in */
+#define REMAP_MAX_HZ 30          /* turbo rate 0: flips every report */
+
+/* Level triggers (held, held for) go with level effects (hold, turbo,
+ * nothing, turbo modifier); the others are events, with tap, toggle hold,
+ * toggle turbo, toggle turbo modifier.  A turbo modifier's outputs are input
+ * keys: while it is on, whatever they send while held pulses at its rate. */
+enum { RT_NONE, RT_HELD, RT_HELD_FOR, RT_PRESSED, RT_RELEASED, RT_TAPPED, RT_DOUBLE, RT_COUNT };
+enum { RE_HOLD, RE_TURBO, RE_NOTHING, RE_TAP, RE_TOGGLE_HOLD, RE_TOGGLE_TURBO,
+       RE_TURBO_MODIFIER, RE_TOGGLE_TURBO_MODIFIER, RE_MACRO, RE_PLAY_MACRO, RE_TOGGLE_MACRO, RE_COUNT };
+/* The macro effects play one of the remap slot's macros, the rule's rate its
+ * number (1 the first), no outputs: macro (level) from the start as it comes
+ * on and again while on; play macro (event) once; toggle macro (event) starts
+ * it looping or stops the loop. */
+
+static inline int remap_level_effect(u8 e)
+{
+    return e < RE_TAP || e == RE_TURBO_MODIFIER || e == RE_MACRO;
+}
+
+static inline int remap_macro_effect(u8 e)
+{
+    return e >= RE_MACRO && e <= RE_TOGGLE_MACRO;
+}
+
+/* A remap slot's macros (each remap slot and the base have their own; a
+ * slot with none set plays the base's): a separate target and store record,
+ * never in RAM, played from flash (macro.c).  The field is entries one
+ * after another, a zero length ending them: {u8 length of the rest, u8 name
+ * length, the name (UTF-8, up to MACRO_NAME), steps}.  A step is two bytes:
+ * the wait since the previous one in MACRO_UNIT_MS, then MACRO_PRESS | key,
+ * key alone for its release, or MACRO_WAIT_ONLY (keys: PAD_* bit numbers,
+ * as rules have them).  Rules play them by number, 1 the first. */
+#ifndef REMAP_MACRO_BYTES
+#define REMAP_MACRO_BYTES 200
+#endif
+#define REMAP_MACROS    8
+#define MACRO_NAME      16
+#define MACRO_UNIT_MS   4
+#define MACRO_PRESS     0x20
+#define MACRO_WAIT_ONLY 0xff
+
+struct remap_rule {
+    u8 trigger, input;
+    u8 ms10;                 /* held for, tapped under, double-tapped within: 10 ms units */
+    u8 effect;
+    u8 outputs[4];           /* PAD_* mask, little-endian */
+    u8 rate;                 /* turbo or turbo modifier Hz; 0: every report */
+    u8 reserved;             /* zero: room for a condition key */
+};
+
+enum { STICK_SAME, STICK_OTHER, STICK_NOTHING };   /* two on one host stick: the further out wins */
+
+struct set_remap {
+    char name[REMAP_NAME];   /* NUL-padded UTF-8 */
+    u8 map[REMAP_INPUTS];    /* each key's base row, while held: 0 itself, n the key with bit
+                                n - 1, REMAP_OFF nothing; its rules add to it */
+    struct remap_rule rule[REMAP_RULES];
+    /* The sticks (a second record): curves, disabled = calibrated input exactly. */
+    u8 left_curve_enabled, right_curve_enabled;
+    u8 left_curve_points[STICK_CURVE_POINTS];
+    u8 right_curve_points[STICK_CURVE_POINTS];
+    struct cal_deadzone deadzone[2];
+    /* Each physical stick: its curve, inversion, then where it goes. */
+    u8 invert[2][2];         /* [stick][x, y] 1: inverted */
+    u8 maps_to[2];           /* STICK_*: the host stick it drives */
+    u8 rumble;               /* step: 0 off, 1-RUMBLE_STEPS */
+    /* Per step: [left, right] percent duty for the lightest and the full
+     * rumble, and full power this long when a motor starts. */
+    u8 rumble_min[2][RUMBLE_STEPS], rumble_max[2][RUMBLE_STEPS];
+    u8 rumble_kick_ms[RUMBLE_STEPS];
+    u8 mouse_layout;         /* mouse: 0 games, 1 desktop */
+    u16 stick_speed;         /* mouse: pointer counts per second, stick all the way */
+    u16 gyro_speed;          /* mouse, touchpad: counts per degree turned; 0 off */
+    u16 gyro_accel;          /* percent of gyro_speed for fast turns */
+    /* The triggers, L2 then R2 (in_triggers). */
+    u8 trigger_press[2];     /* percent of travel where it counts as pressed; 0 as 1 */
+    u8 trigger_mode[2];      /* TRIGGER_* */
+};
+
+/* The board's base remap until it is changed (board_pad.c): its name, map and
+ * rules; the other fields take their own defaults.  Zero: every key sends
+ * itself.  The remap slots take it as they take the base. */
+extern const struct set_remap board_remap_base;
+
+/* The remap slot's sticks: curves, inversion, which host stick each drives;
+ * NULL: as calibrated. */
+void in_response(const struct set_remap *m, struct pad *pad);
+
+/* What a change can be made to: a slot, the palette, calibration or a remap slot. */
+#define TARGET_PALETTE SLOTS
+#define TARGET_CAL     (SLOTS + 1)
+#define TARGET_REMAP   (SLOTS + 2)
+#define TARGET_BASE    (TARGET_REMAP + SLOTS)   /* the base remap: what remap slots inherit */
+#define TARGET_MACROS  (TARGET_BASE + 1)       /* the remap slots' macros, then the base's */
+#define TARGETS        (TARGET_MACROS + SLOTS + 1)
+
+enum { SET_OK, SET_UNKNOWN, SET_BAD_LENGTH, SET_RANGE, SET_FULL,
+       SET_NOT_HELD };            /* ephemeral: a remap other than the one held (in use) */
+enum { SET_UNPAIR = 0xfe };       /* WRITE action: slot only, zero-length; applied on COMMIT */
+
+void set_init(void);
+void set_poll(u32 now, int radio_quiet);
+void set_flush(void);                    /* write what is pending now: before sleep or reboot */
+const struct set_slot *set_slot(u8 slot);
+struct rgb set_colour(u8 entry);         /* a palette entry, at full strength */
+const struct set_brightness *set_brightness(void);
+const struct bt_bond *set_bond(u8 slot);
+void set_bond_store(u8 slot, const struct bt_bond *bond);
+void set_slot_address(u8 slot, u8 out[6]);
+/* Use the current identity for first pairing; renew only to replace a bond.
+ * A candidate is saved with the bond after successful pairing. */
+void set_pairing_address(u8 slot, int renew, u8 out[6]);
+void set_pairing_store(u8 slot, const u8 address[6], const struct bt_bond *bond);
+const struct set_cal *set_cal(void);
+/* Remap slot 0-7, or REMAP_BASE: the base remap, which the slots take every
+ * field they have not set from (but their names; A keeps its own swap). */
+#define REMAP_BASE SLOTS
+const struct set_remap *set_remap(u8 remap);
+/* Macro n (1-based) of remap slot remap (or REMAP_BASE; one without macros
+ * set: the base's): the store key and the offsets of its steps in that
+ * record, [*from, *to); 0: no such macro. */
+int set_macro(u8 remap, u8 n, u16 *key, u16 *from, u16 *to);
+u32 set_edits(void);                     /* counts commits from the tools */
+u32 set_changes(void);                   /* counts every change of a value, the pad's own too */
+void set_cal_store(const struct set_cal *cal);
+/* Over USB: */
+u32 set_describe(u32 n, u8 *out, u32 max);
+/* Current values include the effective slot address, even when still derived;
+ * its set flag stays clear until saved. Defaults retain zero for derived. */
+u32 set_read(u8 target, u8 *out, u32 max);
+u32 set_read_defaults(u8 target, u8 *out, u32 max); /* same format, no state changes */
+/* WRITE items: {target, id, length, bytes}; SET_UNPAIR clears the bond and
+ * stores a new address at COMMIT. DROP cancels it like any other setting edit. */
+u32 set_write(const u8 *items, u32 len, u8 *results, u32 max);
+void set_apply(void);
+void set_drop(void);
+u32 set_staged(void);
+void set_ephemeral(void);
+int set_is_ephemeral(void);
+
+/* ---- leds.c ------------------------------------------------------------- */
+
+/* LIGHT_CABLE and LIGHT_PAIRING: the cable and pairing signs on lights of
+ * their own (leds_mono.c: the 8BitDo's light under Home and its red one),
+ * last so a chain keeps its order. */
+enum { LIGHT_HOME, LIGHT_P0, LIGHT_P1, LIGHT_P2, LIGHT_P3, LIGHT_GRIP_L,
+       LIGHT_GRIP_R, LIGHT_UNUSED, LIGHT_CABLE, LIGHT_PAIRING, LIGHT_COUNT };
+
+struct led_frame { struct rgb light[LIGHT_COUNT]; };
+/* A frame finer than the LEDs: 1/256 of their steps, 0-65280. */
+struct led_fine { u16 light[LIGHT_COUNT][3]; };
+
+/* Blinks have soft edges, breathing eases in and out, a sweep is a light
+ * gliding to and fro (a step: the time from one light to the next). */
+enum { WAVE_OFF, WAVE_SOLID, WAVE_BLINK, WAVE_BREATHE, WAVE_SWEEP };
+struct led_wave { u8 kind; u16 a, b; };    /* blink: on, off; breathe: period; sweep: step */
+#define LED_OFF            { WAVE_OFF, 0, 0 }
+#define LED_SOLID          { WAVE_SOLID, 0, 0 }
+#define LED_BLINK(on, off) { WAVE_BLINK, (on), (off) }
+#define LED_BREATHE(ms)    { WAVE_BREATHE, (ms), 0 }
+#define LED_SWEEP(ms)      { WAVE_SWEEP, (ms), 0 }
+
+enum { BAR_ALL, BAR_SLOT, BAR_PLAYER };       /* BAR_PLAYER: the slot's players setting */
+enum { GRIPS_WAVE, GRIPS_SLOT_SETTING };
+enum { COLOUR_IDLE, COLOUR_CONNECT, COLOUR_PRIMARY };
+/* The whole pad as one, instead of Home, the bar and the grips: quick
+ * settings (colours flowing down the pad); restarting into the ROM loader (a
+ * green light runs down and fills the pad, a flash, then dim green, which
+ * the LEDs hold while the loader runs; LED_LOADER_MS in all). */
+enum { EFFECT_NONE, EFFECT_QUICK, EFFECT_LOADER };
+#define LED_LOADER_MS 900
+
+struct led_scene {
+    u8 colour;
+    struct led_wave home;
+    u8 bar;
+    struct led_wave bar_wave;
+    u8 grips;
+    struct led_wave grips_wave;
+    u8 effect;               /* EFFECT_*: then the rest is unused */
+};
+
+/* A new scene fades in over the frame shown when it began (from). */
+struct led_state {
+    u8 scene;              /* enum ctl_kind */
+    u8 slot;               /* SLOT_NONE: none */
+    u32 since_ms;
+    struct led_fine from;
+};
+
+struct led_inputs {
+    struct shade connect_colour, primary_colour, secondary_colour, idle_colour, battery_colour;
+    u16 animation;         /* animated grips and player lights: their colours at this brightness */
+    u8 grips, player_lights;   /* the slot's settings */
+    u8 ephemeral;
+    u8 rumble[2];
+    u8 reach[2];
+    u8 usb_powered, usb_plug_lit, low_battery;
+    u8 has_players, players, players_flash;
+    u8 has_lightbar;
+    struct rgb lightbar;
+    u8 cal_lit;
+    struct rgb cal;
+    u8 signal;             /* LED_SIGNAL_*: quick settings' feedback on Home */
+};
+
+void led_frame(const struct led_scene *scene, const struct led_state *s, u32 now,
+               const struct led_inputs *in, struct led_fine *out);
+/* The fine frame in the LEDs' steps.  dither: a dim light between two steps
+ * shows each in turn, carrying what is left (acc, the caller's) to the next
+ * refresh.  Returns whether refreshing again soon shows more than this. */
+int led_dither(const struct led_fine *f, u16 acc[LIGHT_COUNT][3], int dither, struct led_frame *out);
+void led_reach(u8 reach[2], const struct pad *pad);
+
+/* ---- leds_mono.c -------------------------------------------------------- */
+
+/* LEDS_MONO: one-colour lights (the 8BitDo pads) drawn by leds_mono.c
+ * instead of leds.c; no palette, no slot light settings, no LED demos.  The
+ * Home ring blinks while connecting, faster while pairing with
+ * LIGHT_PAIRING, and is lit while connected; LIGHT_CABLE shows a cable
+ * arriving; quick settings and config mode light Home and LIGHT_CABLE in
+ * turn.  Player lights, on a board with them, show the host's player number
+ * while connected. */
+#ifndef LEDS_MONO
+#define LEDS_MONO 0
+#endif
+enum { MONO_DARK, MONO_CONNECTING, MONO_PAIRING, MONO_CONNECTED, MONO_QUICK };
+struct led_mono {
+    u8 show;                     /* MONO_* */
+    u8 cable;                    /* a cable arrived: LIGHT_CABLE lit */
+    u8 players, players_flash;   /* connected: the host's player lights, a bit each; flashing */
+    u8 cal_lit;                  /* the calibration routine's light on Home instead */
+    struct rgb cal;
+    u8 signal;                   /* LED_SIGNAL_*: quick settings' feedback on Home */
+};
+/* The frame at now; returns when it next changes by itself (0: never). */
+u32 led_mono(const struct led_mono *in, u32 now, struct led_frame *out);
+/* What an LED demo (ux_led_demos) shows here, t ms into it. */
+struct ux_led_demo;
+void led_mono_demo(const struct ux_led_demo *demo, u32 t, struct led_mono *m);
+
+/* ---- remap.c ------------------------------------------------------------ */
+
+/* Quick settings' layer over the remap slot, per key (quick.c). */
+#ifndef QUICK_MAPS
+#define QUICK_MAPS    4          /* keys mapped at once */
+#endif
+#define QUICK_SLOW_HZ 10
+#define QUICK_FAST_HZ 20
+struct remap_quick {
+    u32 slow, fast;              /* keys whose sends pulse at QUICK_SLOW_HZ, QUICK_FAST_HZ */
+    u32 map[QUICK_MAPS];         /* a key sending these keys instead: PAD_* | (IN_* + 1) << 24; 0 none */
+    u8 macro;                    /* the key that plays the macro, IN_* + 1, sending nothing itself; 0 none */
+};
+
+/* The remap slot's buttons from the ones ux_step leaves.  every_report: keys
+ * at turbo rate 0, for the report builder to flip.  q: quick settings'
+ * keys, which their rows and rules leave alone.  Reset when the remap slot
+ * or its settings change, and outside a connection. */
+u32 remap_step(const struct set_remap *m, u32 in, u32 now, u32 *every_report, const struct remap_quick *q);
+void remap_reset(void);
+u32 remap_deadline(void);                   /* the next turbo edge, pulse end or hold time; 0: none */
+/* The macro rules of the last remap_step, a bit per macro (bit 0: macro 1):
+ * level rules on, and this pass's starts (a level rule's as it comes on)
+ * and loop toggles. */
+struct remap_macros { u8 held, start, toggle; };
+const struct remap_macros *remap_macros(void);
+
+/* ---- macro.c ------------------------------------------------------------ */
+
+/* The remap slot's macros, played from flash after the remap (so they
+ * trigger no rule), one at a time: a new start replaces the one playing.
+ * While one plays it owns the keys it uses (the d-pad as one).  Connected
+ * and the remap running: out = macro_play(remap slot, remap_macros(),
+ * remap_step's out, ...); macro_stop wherever the remap is reset. */
+u32 macro_play(u8 remap, const struct remap_macros *r, u32 out, u32 now, u32 *every_report);
+void macro_stop(void);
+u32 macro_deadline(void);
+
+/* ---- quick.c ------------------------------------------------------------ */
+
+/* Quick settings' layer: turbo steps, mappings and the pad's one macro, in
+ * RAM.  quick_clear: a new slot, a disconnect, sleep, M held.
+ * Config mode stops playback but keeps the completed recording for quick_read.
+ * While connected and the remap runs: quick_recording() ? quick_record_step
+ * (the remap suspended) : remap_step then quick_play; otherwise quick_stop.
+ * The LEDs show quick_led's Home (LED_SIGNAL_*) over the scene. */
+enum { SIG_NONE, SIG_REMAP_ON, SIG_REMAP_OFF, SIG_CLEARED, SIG_SAVED, SIG_SAVED_LOOP, SIG_SAVED_MAP,
+       SIG_DISCARDED };
+enum { LED_SIGNAL_NONE, LED_SIGNAL_DARK, LED_SIGNAL_LIT };
+const struct remap_quick *quick_keys(void);
+void quick_clear(void);
+void quick_turbo(u8 key, u32 now);
+void quick_record(u8 key, int loop, u32 now);
+int quick_recording(void);
+u32 quick_record_step(u32 in, u32 now);     /* the host's buttons while recording */
+u32 quick_play(u32 in, u32 out, u32 now, u32 *every_report);  /* in: as ux_step left them; out: the remap's */
+void quick_stop(u32 now);
+/* Completed recording: version 1, trigger + 1, loop, length, then steps from offset. */
+u32 quick_read(u32 offset, u8 *out, u32 max);
+u32 quick_deadline(void);
+void quick_signal(u8 sig, u32 now);
+u8 quick_led(u32 now, u32 *next, u32 held);   /* held: quick settings' keys held (a turbo's rate) */
+
+/* ---- settings_ux.c ------------------------------------------------------ */
+
+struct ux_timeouts {
+    u16 home_grace_ms;
+    u16 tap_ms;
+    u32 connect_ms;
+    u32 pair_ms;
+    u32 idle_sleep_ms;
+    u32 offline_sleep_ms;
+    u16 unplug_sleep_ms;
+    u16 stop_max_ms;
+    u16 boot_scene_ms;
+    u16 updater_window_ms;
+    u16 led_frame_ms;
+    u16 usb_plug_ms;
+    u32 quick_ms;            /* quick settings with no key pressed */
+    u32 config_ms;           /* config mode without a host */
+    u16 rumble_pulse_ms;     /* quick settings L1/R1: one pulse per rumble step */
+    u16 rumble_gap_ms;       /* silence between feedback pulses */
+};
+
+/* Quick settings rumble feedback at elapsed ms: whether the motors are on, and the
+ * next edge in elapsed ms (0: finished). Restart by passing elapsed 0 with
+ * the new level; level 0 ends immediately. */
+int ux_rumble_feedback(u8 level, u32 elapsed, u32 *next);
+
+struct ux_colours { u8 idle, battery; };
+
+/* The board's LED defaults, in tenths of the LEDs' smallest step.
+ * Palette settings override steady, animation and connect; idle and battery
+ * use the board levels directly. */
+struct board_led_brightness {
+    u16 steady, animation, connect;
+    u16 idle, battery;
+};
+extern const struct board_led_brightness board_led_brightness;
+
+/* The board's defaults for the remap settings rumble_*, steps 1-RUMBLE_STEPS:
+ * [left, right] percent duty for the lightest and the full rumble, and full
+ * power this long when a motor starts.  Its motors set them. */
+struct board_rumble {
+    u8 min[2][RUMBLE_STEPS], max[2][RUMBLE_STEPS];
+    u8 kick_ms[RUMBLE_STEPS];
+};
+extern const struct board_rumble board_rumble;
+
+/* The board's defaults for each slot (RADIO_*, PROFILE_*) and what it runs:
+ * radios 1 << RADIO_*, radio_types the types its Bluetooth runs (through the
+ * dongle: any of PROFILE_USB_TYPES), usb_types the types its cable runs, 1 <<
+ * PROFILE_*.  0: all (radio_types: all with a Bluetooth half; usb_types: all
+ * of PROFILE_USB_TYPES).  The tools see only these. */
+struct board_slots {
+    u32 radio[SLOTS], radio_type[SLOTS], usb_type[SLOTS];
+    u32 radios, radio_types, usb_types;
+    u8 static_random;           /* use LE static random identities, except Switch 2 (public) */
+};
+extern const struct board_slots board_slots;
+
+/* The board's controls, as a tool draws and names them (board_pad.c): one
+ * entry per input the board has, in no particular order.  Every field is a
+ * byte, so the table is its own wire format (usb.c LAYOUT). */
+enum {
+    LAYOUT_FACE,                /* the four face buttons, or a pad's own main buttons */
+    LAYOUT_DPAD,                /* a d-pad direction */
+    LAYOUT_SHOULDER,            /* on top, in front of the triggers */
+    LAYOUT_TRIGGER,             /* on top: an analog trigger and its pressed bit */
+    LAYOUT_STICK,               /* a stick's axes (IN_LSTICK, IN_RSTICK) */
+    LAYOUT_STICK_CLICK,         /* pressing that stick in */
+    LAYOUT_MENU,                /* the small ones on the front: Select, Start, Home ... */
+    LAYOUT_BACK,                /* a paddle or button on the back */
+    LAYOUT_TOP,                 /* another button on top */
+    LAYOUT_TRIGGER_DIGITAL,     /* on top: a trigger that is only pressed or not
+                                 * (calibration leaves it out) */
+    LAYOUT_KINDS
+};
+struct board_control {
+    u8 input;                   /* IN_* */
+    u8 kind;                    /* LAYOUT_* */
+    char label[8];              /* as printed on the pad, UTF-8, NUL-padded; "": nothing printed */
+    u8 x, y;                    /* where it sits, 0-255 across and down the front; 0 0: not placed */
+};
+_Static_assert(sizeof(struct board_control) == 12, "board_control is its wire format");
+extern const struct board_control board_layout[];
+extern const u8 board_layout_count;
+#define LAYOUT_COUNT(table) ((u8)(sizeof(table) / sizeof((table)[0])))
+
+extern const struct ux_timeouts ux_timeouts;
+extern const u8 ux_usb_autoconnect;
+extern const u8 ux_first_slot;           /* Home's slot before any has connected */
+extern const struct ux_colours ux_colours;
+
+/* LED demos (padtool led-demo): a scene in slot south's colours, with these instead
+ * of the slot's settings; 0 in a brightness: the palette's.  A demo lasts
+ * UX_LED_DEMO_MS after the last request for it. */
+#define UX_LED_DEMO_MS 30000
+enum { LED_DEMO_DITHER_PALETTE, LED_DEMO_DITHER_OFF, LED_DEMO_DITHER_ON };
+enum { LED_DEMO_SCENE, LED_DEMO_QUICK, LED_DEMO_LOADER };   /* the scene, or one of the others */
+/* What a demo stands in for, over the scene: on battery; a cable arriving
+ * (again every LED_DEMO_REPEAT_MS); a low battery; the calibration routine's
+ * light (cal_led_demo); ephemeral mode; the motors running (a slow ramp up
+ * and down, the lights only). */
+enum { LED_FAKE_BATTERY = 1, LED_FAKE_PLUG = 2, LED_FAKE_LOW_BATTERY = 4, LED_FAKE_CAL = 8,
+       LED_FAKE_EPHEMERAL = 16, LED_FAKE_RUMBLE = 32 };
+#define LED_DEMO_REPEAT_MS 3000
+struct ux_led_demo {
+    const char *name;
+    u8 scene;                /* enum ctl_kind: its LED scene */
+    u8 kind;                 /* LED_DEMO_*; the loader's runs again every couple of seconds */
+    u8 grips, players;       /* connected: GRIPS_*, PLAYERS_* */
+    u16 steady, animation;
+    u8 dither;               /* LED_DEMO_DITHER_* */
+    u8 fake;                 /* LED_FAKE_* */
+    struct rgb lightbar;     /* the console's lightbar colour; black: none set */
+    u8 players_flash;        /* player lights the console flashes (the number is player 1) */
+};
+extern const struct ux_led_demo ux_led_demos[];
+extern const u8 ux_led_demo_count;
+extern const struct led_scene ux_scenes[CTL_KIND_COUNT];
+extern const struct led_scene ux_quick_scene, ux_loader_scene;   /* quick settings, to the loader */
+
+/* Home gestures, table in settings_ux.c.  ux_reported: the controller saw a
+ * held-back Home tap's down report leave. UX_QUICK_SETTINGS=0 excludes the
+ * Home+M quick settings for a controller without the remap engine. */
+struct ctl_request ux_step(struct pad *pad, u32 now, u8 state);
+void ux_reported(u32 now);
+/* Earliest permitted idle power-off: 0 while USB powered, otherwise the
+ * later of offline/unplug waits (or the longer ephemeral inactivity wait).
+ * The controller uses this for both its sleep decision and wake deadline. */
+u32 ux_idle_deadline(u32 idle_since, u32 activity_ms, u32 usb_seen_ms,
+                     int usb_powered, int ephemeral);
+u32 ux_deadline(void);                      /* when ux_step may next fire a hold, 0: none */
+u8 ux_armed(void);                          /* slot a release would connect, or SLOT_NONE */
+void ux_ignore_held(void);
+int ux_quick(u32 *since);                   /* in quick settings; since: when it began */
+struct ctl_request ux_boot(u32 buttons, int home_wake, u32 now);
+int ux_updater_chord(u32 buttons);          /* buttons hold a chord for the updater */
+
+/* ---- usb.c -------------------------------------------------------------- */
+
+/* Timing and counters, kept by the loop, read over USB (padtool stats); times
+ * in µs.  Laid out without padding (checked below), so the bytes padtool reads
+ * are the struct as it is in memory. */
+#define STAT_BUCKETS 16          /* bucket i: below 32 << i µs; the last: the rest */
+struct stat_hist {
+    u64 sum;
+    u32 count, max;
+    u16 bucket[STAT_BUCKETS];
+};
+
+enum { STEP_INPUT, STEP_BT, STEP_USB, STEP_POWER, STEP_TIMEOUTS, STEP_REPORT, STEP_OUTPUTS,
+       STEP_SETTINGS, STEP_COUNT };
+
+/* The HCI receive queue between the controller and BTstack (Jieli):
+ * packets lost to a full queue, ACL packets the controller was told to keep
+ * for now (host flow control, BR23), all saturating; its high-water mark. */
+struct hci_queue_stats {
+    u16 dropped_events, dropped_acl, held_acl;
+    u8 most, slots;              /* slots ever in use at once, of all */
+};
+
+struct bt_stats {
+    u32 sent;                    /* input reports handed to the controller */
+    u32 replaced;                /* overwritten in the newest-wins slot before that */
+    u32 acked;                   /* packets the controller reports as sent */
+    u32 loop_runs;               /* passes of the bluetooth thread's run loop */
+    u32 loop_us;                 /* time in them, wake to sleep (higher priorities included) */
+    u32 anchors;                 /* connection events / sniff anchors the central's packets marked */
+    u32 late;                    /* reports that went out an anchor or more after the one after hand-over */
+    struct hci_queue_stats hci;  /* since boot, not from the last reset */
+};
+
+/* The link as the controller reports it, and when it said packets went. */
+struct bt_link_info {
+    u8 transport;                /* 0 none, 1 Classic, 2 LE */
+    u8 phy_tx, phy_rx;           /* LE: 1 1M, 2 2M, 3 coded */
+    u8 mode;                     /* Classic: 0 active, 2 sniff */
+    u16 interval;                /* LE: 1.25 ms units; Classic sniff: slots */
+    u16 latency, timeout;        /* LE: events; 10 ms units */
+    u16 tx_octets, tx_time;      /* LE: data length the controller sends with */
+    u16 rx_octets, rx_time;      /* LE: and takes */
+    u16 acl_buffers;             /* the controller's ACL packets (LE ones on LE) */
+    u32 poll_us;                 /* Classic: accepted poll interval (us), 0 unknown */
+    u32 lead_us;                 /* reports are built this long before their anchor; 0: when asked */
+    u32 period_us;               /* between the central's anchors, as bt_pad.c reckons it; 0 unknown */
+};
+
+struct bt_timing {
+    struct stat_hist ack_wait;   /* report to the controller until it says sent */
+    struct stat_hist slot_air;   /* report into the input slot until the anchor it went out at */
+    struct stat_hist ack_gap;    /* between Number Of Completed Packets for the link */
+    struct stat_hist want_send;  /* bt_pad.c asked for a report until it was handed over */
+    struct bt_link_info link;
+};
+
+struct plat_stats {
+    u32 button_changes;          /* debounced changes seen by the tick */
+    u32 stick_frames;            /* good frames from the stick MCU */
+    u32 stick_resyncs;           /* bytes skipped to find a frame */
+};
+
+struct ctl_stats {
+    u32 since_ms, now_ms;
+    u32 passes, reserved;
+    struct stat_hist pass;       /* one pass of the loop, wake to sleep */
+    struct stat_hist interval;   /* between reports sent */
+    struct stat_hist age;        /* button change to the report carrying it */
+    u32 step_max[STEP_COUNT];
+    u32 step_sum[STEP_COUNT];
+    u32 reports, imu_samples;
+    struct bt_stats bt;
+    struct plat_stats plat;
+    struct bt_timing bt_timing;
+};
+_Static_assert(sizeof(struct stat_hist) == 48 && sizeof(struct ctl_stats) == 280 + 4 * 48 + 32,
+               "padtool reads struct ctl_stats byte for byte");
+
+/* ---- battery.c: board samples, estimates and independently valid facts --- */
+
+struct battery_status { u16 mv; u8 percent, flags; };
+void battery_voltage(struct battery_status *out, u16 mv, u16 empty_mv, u16 full_mv);
+void battery_low(struct battery_status *out, u16 low_mv, u16 okay_mv);
+void battery_charge(struct battery_status *out, int powered, int charging);
+
+/* Tool protocol 3 adds shared sensor calibration, queued by usb_poll().
+ * Protocol 4 adds read-only setting defaults; 5 uses 15-point stick curves
+ * and independent enable flags. These settings are pad-only. */
+struct usb_status {
+    u8 state;
+    u8 slot;
+    u8 usb_powered;
+    u8 low_battery;
+    struct battery_status battery;
+    u32 uptime_ms;
+    u8 ephemeral;
+    u8 staged;               /* settings items waiting for commit */
+    const struct ctl_stats *stats;
+    const struct pad *input;     /* the controls, calibrated, before Home gestures and the remap; NULL: none */
+    const struct in_raw *raw;    /* as read */
+#if TOOL_PRESS
+    const struct pad *output;    /* what goes to the host: after the remap and macros */
+#endif
+};
+
+struct ctl_request usb_poll(const struct usb_status *status);
+u32 usb_command(const u8 cdb[16], u8 *data, u32 len, int from_host);   /* the platform's tool device */
+
+/* ---- utils.c ------------------------------------------------------------ */
+
+void util_log_init(void);
+void util_log(const char *fmt, ...);
+#ifdef DEBUG_UART_DP
+void plat_debug_line(const char *text);  /* a bring-up build's UART on USB D+ */
+#else
+#define plat_debug_line(text) ((void)0)
+#endif
+u32 util_log_read(u32 *seq, char *out, u32 max);
+static inline int util_is_zero(const void *data, u32 len)
+{
+    const u8 *p = data;
+    while (len--) if (*p++) return 0;
+    return 1;
+}
+void util_put16(u8 *p, u16 v);
+void util_put32(u8 *p, u32 v);
+u32 util_get32(const u8 *p);
+void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]);
+void util_stat_add(struct stat_hist *h, u32 us);
+/* Timing trace: a ring of {µs, marker, argument}, any thread or interrupt;
+ * padtool trace reads it.  Markers: */
+enum { TR_WANT = 1, TR_BT_WAKE, TR_BT_SLEEP, TR_CTL_WAKE, TR_BUILT, TR_SENT, TR_ACK,
+       TR_CTL_SLEEP, TR_STICK, TR_HANDED, TR_ANCHOR };
+void util_trace(u8 marker, u16 arg);
+u32 util_trace_read(u32 offset, u8 *out, u32 max);
+void util_trace_enable(int on);
+struct util_probe_edge { u32 edge_us, sent_us; u8 level, pad[3]; };   /* sent 0: never alone in a report */
+void util_probe_start(u32 edges, u32 period_ms);
+u32 util_probe_apply(u32 *buttons, u32 *changed_us);
+void util_probe_sent(u32 us);
+void util_probe_stop(void);
+u32 util_probe_take(struct util_probe_edge *out, u32 max, u32 *lost, u8 *active);
+
+/* ---- platform_jieli.c --------------------------------------------------- */
+
+/* EV_STICKS: a stick or trigger moved (boards that read them in the wait loop). */
+enum { EV_BUTTONS = 1, EV_USB = 2, EV_BT = 4, EV_IMU = 8, EV_STICKS = 0x10, EV_DEADLINE = 0x80 };
+
+enum { BOOT_POWER_ON, BOOT_HOME, BOOT_USB, BOOT_RESET };
+struct plat_boot {
+    u8 cause;
+    u32 buttons_held;
+};
+
+u32 plat_ms(void);
+u32 plat_us(void);                          /* wraps */
+/* Sampling profiler: a timer interrupt above everything else counts the
+ * interrupted code address, in buckets over flash code, RAM code and the mask
+ * ROM.  plat_prof_start(0) stops it; read returns the header and the counts
+ * from a byte offset (padtool profile). */
+void plat_prof_start(u16 hz, u32 zoom, u8 zoom_shift);   /* zoom: flash window start, 0 none */
+u32 plat_prof_read(u32 offset, u8 *out, u32 max);
+u32 plat_peek(u32 addr, u8 *out, u32 max);  /* 32-bit words from addr, for registers */
+u32 plat_wait(u32 deadline_ms, u32 at_us);   /* either 0: none; at_us to 250 µs */
+void plat_wake(u32 events);                 /* from another thread or an interrupt */
+void plat_delay_ms(u32 ms);                 /* blocking; set-up only */
+void plat_bt_thread(void (*body)(void));
+void plat_bt_wait(u32 ms);                  /* the bluetooth thread sleeps until woken */
+void plat_bt_wake(void);
+void plat_p256_thread(void (*body)(void));  /* the P-256 thread, below the main loop */
+void plat_p256_wait(void);
+void plat_p256_wake(void);
+void plat_lock(void);
+void plat_unlock(void);
+void plat_boot_info(struct plat_boot *out);
+void plat_input(struct in_raw *raw);
+void plat_leds(const struct led_frame *f);
+void plat_motors(u8 left, u8 right);       /* duty of 255 */
+/* USB there: the BR23, a host's frames within 250 ms; the B80, power on the
+ * connector, debounced (its USB attaches on it). */
+int plat_usb_present(void);
+int plat_usb_power(void);                   /* 5 V on the connector, whether or not a host talks */
+int plat_usb_suspended(void);               /* the host suspended the bus (3 ms quiet) */
+void plat_usb_service(void);
+/* The tool device's command buffer, lent for a command from elsewhere
+ * (config mode, CONFIG_LENT_BUFFER): 16 bytes for the CDB, then the data
+ * or the answer.  NULL while it has a command of its own; its commands
+ * are refused until it is back. */
+u8 *plat_tool_lend(u32 *size);
+void plat_tool_return(void);
+void plat_usb_probe_request(u32 extra);   /* USB_PROBE test builds: tools/usbprobe.py */
+/* USB as a game controller.  plat_usb_mode(NULL) is the tool device (mass
+ * storage, the vendor commands); a personality re-enumerates as that device.
+ * read answers the host's GET_REPORT in the USB interrupt (constant data, as
+ * on Bluetooth).  Input is newest-wins: one waits, a newer one replaces it;
+ * messages queue behind each other and go first.  EV_USB when the host took
+ * a report or wrote one. */
+void plat_usb_mode(const struct usb_identity *id,
+                   int (*read)(u8 kind, u16 id, u16 offset, u8 *out, u16 max));
+void plat_usb_audio(u8 sound);              /* USB_SOUND_*: for the next plat_usb_mode */
+int plat_usb_ready(void);                   /* the host configured the personality */
+int plat_usb_jack_in(void);                 /* a plug in the headphone jack, debounced */
+int plat_usb_input_wanted(void);            /* nothing waits to go to the host */
+int plat_usb_input_staged(void);            /* an input waits; the endpoint takes it as it frees */
+u32 plat_usb_input_due_us(void);            /* when to build input: a lead before the host's next
+                                               poll (plat_us); 0: no regular polls, at once */
+u32 plat_usb_input_took_us(void);           /* when the host took the last input (plat_us) */
+int plat_usb_send_input(u8 id, const u8 *data, u16 len);
+int plat_usb_send_message(u16 id, const u8 *data, u16 len);   /* HOST_BULK: bulk IN */
+int plat_usb_take(struct bt_write *w);      /* the host's next write, 0: none */
+/* Feature report 0xf5 "tool", whatever the personality (hidraw can send it):
+ * the session ends and USB is the tool device again. */
+#define USB_TOOL_REPORT 0xf5
+void plat_battery(struct battery_status *out);
+void plat_stats(struct plat_stats *out);
+const u8 *plat_unique_id(void);
+extern const char board_name[];   /* model, e.g. "Cyclone 2" or "Cyclone 2 Dongle":
+                                    * tool USB/SCSI product, IDENTIFY, plain HID names */
+extern const char board_short_name[];   /* board_name where a name has a hard limit (the
+                                         * U2C Bluetooth's LE name: 14 bytes); boards that
+                                         * use it define it */
+int plat_store_read(u16 key, void *buf, u16 len);
+int plat_store_write(u16 key, const void *buf, u16 len);
+/* Part of a record: len bytes from offset, fast enough for the input path
+ * (macro.c's steps); returns the bytes read, 0 past its end or none. */
+int plat_store_read_at(u16 key, u16 offset, void *buf, u16 len);
+/* core/store.c's flash, on the boards that build it (Telink, YC3121): reads
+ * and writes of any length and alignment, an erase of the 4 KiB sector at
+ * a multiple of it (store.h: STORE_SECTOR); 1 done, 0 refused or failed. */
+int plat_flash_read(u32 at, void *buf, u32 n);
+int plat_flash_write(u32 at, const void *buf, u32 n);
+int plat_flash_erase(u32 at);
+/* A board's own receiver (the 8BitDo's stock 2.4G receiver, BT_8BITDO): the
+ * pad pairs with it, not a slot; save 0 keeps a new pairing in RAM only. */
+int plat_receiver_paired(void);
+void plat_receiver_pair(const u8 address[5], int save);
+u8 plat_retained_slot(void);               /* last selected slot, or SLOT_NONE if unavailable */
+void plat_retain_slot(u8 slot);            /* call before starting the radio; may write flash */
+void plat_power_off(void);
+void plat_reboot(void);
+void plat_reboot_loader(void);
+void plat_reboot_updater(void);  /* into the updater, where the app has one */
+void plat_reboot_config(void);   /* the updater: restart the app in config mode */
+int plat_config_asked(void);     /* the app at boot: the updater asked for config mode (once) */
+void plat_watch_stop(void);                 /* the hang watch, before a long wait on purpose */
+
+#endif

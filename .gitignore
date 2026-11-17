@@ -1,7 +1,6 @@
 /out
 /out-*
 /build/
-/build-*/
 /cscope.files
 /cscope.in.out
 /cscope.out
@@ -11,4 +10,6 @@
 *~
 __pycache__/
 
-/external/
+/tools/padtool/br23loader.bin
+
+/external/toolchains/

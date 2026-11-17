@@ -61,7 +61,7 @@ def main():
     root = Path(__file__).resolve().parents[2]
     with tempfile.TemporaryDirectory(prefix='bd19-law-codecs-') as tmp:
         library = Path(tmp) / 'codecs.so'
-        sources = [root / 'src/btctrler/bd19' / name for name in
+        sources = [root / 'src/platform/jieli/btctrler/bd19' / name for name in
                    ('au_law_codec.c', 'esco_codec.c')]
         subprocess.run(['gcc', '-O2', '-std=gnu11', '-shared', '-fPIC',
                         '-DUNITTEST', '-DCONFIG_CPU_BD19',

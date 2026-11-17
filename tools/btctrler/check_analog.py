@@ -62,7 +62,7 @@ with (nullcontext(args.output_dir) if args.output_dir else tempfile.TemporaryDir
     out = Path(tmp)
     q32 = root / 'external/toolchains/jieli-linux-toolchains-20250324.1/q32s/bin/clang'
     subprocess.run([str(q32), '-target', 'q32s', '-x', 'ir', '-S', '-emit-llvm',
-                    str(root / 'build/vanilla-bd19/src/btctrler/bd19/analog.o'),
+                    str(root / 'build/vanilla-bd19/src/platform/jieli/btctrler/bd19/analog.o'),
                     '-o', str(out / 'owned.ll')], check=True)
     for name, text in [('oracle', original), ('owned', (out / 'owned.ll').read_text())]:
         (out / (name + '.ll')).write_text(native(text))

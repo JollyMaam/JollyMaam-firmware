@@ -33,7 +33,7 @@ void set_anchor(uint8_t index,uint32_t value){written=value;writes++;}
 '''
 (out/'prestart-mocks.c').write_text(mock)
 subprocess.run([args.cc,'-shared','-fPIC',str(out/'prestart-oracle.o'),str(out/'prestart-mocks.c'),'-o',str(out/'prestart-oracle.so')],check=True)
-s=(root/'src/btctrler/bd19/direct_test_dut.c').read_text()
+s=(root/'src/platform/jieli/btctrler/bd19/direct_test_dut.c').read_text()
 f=re.search(r'^static void prestart_cnt_adjust\([^;]*?\n\{.*?^}',s,re.M|re.S)[0]
 f=f.replace('static void prestart_cnt_adjust','void own_prestart').replace('__get_interval','get_interval').replace('__get_ble_anchor_con','get_anchor').replace('__set_ble_anchor_con','set_anchor')
 source='#include <stdint.h>\ntypedef uint32_t u32;typedef int32_t s32;typedef uint16_t u16;typedef int16_t s16;struct ble_hw;\nextern uint32_t regA,regB;uint32_t get_interval(void);uint32_t get_anchor(uint8_t);void set_anchor(uint8_t,uint32_t);\n#define DUT_REG32(a) ((a)==1867788?regA:regB)\n'+f+'\n'

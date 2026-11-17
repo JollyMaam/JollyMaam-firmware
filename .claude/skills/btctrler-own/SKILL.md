@@ -78,7 +78,7 @@ no-op features and unresolved ABI or hardware questions. For each finding name
 the function, evidence (SDK occurrence/IR operation or prior commit), target
 scope and a concrete follow-up. Distinguish verified behavior from a hypothesis;
 explain why a conditional is needed now and what would justify removing it.
-Consult `src/btctrler/revisit-bd19.md` to avoid rediscovery.
+Consult `src/platform/jieli/btctrler/revisit-bd19.md` to avoid rediscovery.
 Unless assigned that shared file, include proposed additions in your commit
 body so the coordinator can update it without worker edit conflicts.
 
@@ -97,8 +97,8 @@ commit bodies, but do not merge that app branch. Migration provenance is in
 
 For this controller-only migration validate with `make -j32 controller-objects
 controller-test test controller-layouts controller-tools-test controller-audit`
-and `make controller-compare`. Four-product app targets are on the preserved
-application branch, not this branch. A source in `src/btctrler/` compiles for
+and `make controller-compare`. main is merged in; worktrees need the make
+variables in tools/btctrler/vanilla-migration.md. A source in `src/platform/jieli/btctrler/` compiles for
 both chips (`CONFIG_CPU_BD19` selects chip differences); `bd19/` holds BD19-only
 sources. A shared-source change must leave the BR23 firmware image unchanged
 unless the change is meant for BR23 too.

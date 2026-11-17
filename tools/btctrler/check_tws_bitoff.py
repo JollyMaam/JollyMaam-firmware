@@ -29,7 +29,7 @@ f = f.replace('@tws_link_cacl_bitoff', '@oracle_bitoff')
 f = re.sub(r'getelementptr inbounds %struct.ctrl_frame, %struct.ctrl_frame\* (%\w+), i32 0, i32 96', r'getelementptr inbounds i16, i16* \1, i32 0', f)
 f = f.replace('%struct.ctrl_frame*', 'i16*')
 assert '%struct.' not in f, 'SDK input layout changed; re-review the extraction'
-source = (root / 'src/btctrler/bd19/tws_link.c').read_text()
+source = (root / 'src/platform/jieli/btctrler/bd19/tws_link.c').read_text()
 g = re.search(r'^void TWS_CODE tws_link_cacl_bitoff\([^;]*?\n\{.*?^}', source, re.M | re.S)[0]
 g = g.replace('void TWS_CODE tws_link_cacl_bitoff', 'void owned_bitoff')
 g = '#include <stdint.h>\ntypedef uint16_t u16;typedef int16_t s16;struct ctrl_frame { u16 bitoff; };\n' + g

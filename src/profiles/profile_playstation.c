@@ -1,0 +1,866 @@
+#include <string.h>
+#include "pad.h"
+
+/* DualSense (Edge) and DualShock 4 over Classic HID.  Both start in their
+ * extended report (0x31, 0x11): SDL runs a pad already sending it in full
+ * mode (gyro, touchpad, paddles, rumble).  Layouts follow Linux
+ * hid-playstation; neither has been tried on a PlayStation.
+ *
+ * Bluetooth starts in the simple report 0x01 (sticks, buttons, triggers),
+ * which Windows' own driver reads, as the real pads do; reading the
+ * calibration feature or sending the extended output moves to the extended
+ * report, as hid-playstation and SDL do.
+ *
+ * Over USB both send report 0x01: the same state block without the
+ * Bluetooth header and CRC, and take output 0x05 (DualShock 4) or 0x02
+ * (DualSense), whose bytes are the Bluetooth output's after its header.
+ * Feature reports are the same without the CRC; the DualShock 4 reads its
+ * calibration as 0x02 and its address as 0x12 there.  A PlayStation wants
+ * its own authentication over USB, which this does not have. */
+
+#define DS_EXTENDED      0x31
+#define DS4_EXTENDED     0x11
+#define EXTENDED_SIZE    77
+_Static_assert(EXTENDED_SIZE <= PROFILE_REPORT_MAX, "the extended report fits");
+#define TOUCH_TAP_MS     200
+#define TOUCH_CLICK_MS   60
+#define USB_STATE        0x01
+#define SIMPLE           0x01    /* Bluetooth until the host asks for more */
+#define SIMPLE_SIZE      9
+#define USB_STATE_SIZE   63
+#define DS4_USB_OUTPUT   0x05
+#define DS_USB_OUTPUT    0x02
+
+/* USB: report 0x01, the state block as the pads lay it out, so a driver
+ * that reads the descriptor (Windows) finds what hid-playstation reads at
+ * fixed places; the output report; the feature reports the drivers read.
+ * The DualShock 4: sticks, hat and 14 buttons, a counter, triggers.  The
+ * DualSense: sticks and triggers, a counter, hat and 15 buttons. */
+#define HAT \
+    0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3b, 0x01, 0x65, 0x14, \
+    0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x65, 0x00
+#define USB_TAIL(used, output_id, output_size, features...) \
+    0x06, 0x00, 0xff, 0x09, 0x21, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, \
+    0x95, USB_STATE_SIZE - (used), 0x81, 0x02, \
+    0x85, output_id, 0x09, 0x22, 0x95, output_size, 0x91, 0x02, \
+    features 0xc0
+#define FEATURE(id, size) 0x85, id, 0x09, id, 0x95, size, 0xb1, 0x02,
+
+static const u8 ds4_usb_descriptor[] = {
+    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, USB_STATE,
+    0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35, 0x15, 0x00, 0x26, 0xff, 0x00,
+    0x75, 0x08, 0x95, 0x04, 0x81, 0x02,
+    HAT,
+    0x05, 0x09, 0x19, 0x01, 0x29, 0x0e, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0e, 0x81, 0x02,
+    0x06, 0x00, 0xff, 0x09, 0x20, 0x75, 0x06, 0x95, 0x01, 0x15, 0x00, 0x25, 0x3f, 0x81, 0x02,
+    0x05, 0x01, 0x09, 0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
+    USB_TAIL(9, DS4_USB_OUTPUT, 31, FEATURE(0x02, 36) FEATURE(0x12, 15) FEATURE(0xa3, 48))
+};
+
+static const u8 ds_usb_descriptor[] = {
+    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, USB_STATE,
+    0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35, 0x09, 0x33, 0x09, 0x34,
+    0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x06, 0x81, 0x02,
+    0x06, 0x00, 0xff, 0x09, 0x20, 0x95, 0x01, 0x81, 0x02,
+    HAT,
+    0x05, 0x09, 0x19, 0x01, 0x29, 0x0f, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0f, 0x81, 0x02,
+    0x06, 0x00, 0xff, 0x09, 0x20, 0x95, 0x0d, 0x81, 0x02,
+    USB_TAIL(11, DS_USB_OUTPUT, 62, FEATURE(0x05, 40) FEATURE(0x09, 19) FEATURE(0x20, 63))
+};
+
+static const u8 ds_descriptor[] = {
+    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35,
+    0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x04, 0x81, 0x02, 0x09, 0x39, 0x15, 0x00, 0x25,
+    0x07, 0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x05, 0x09, 0x19, 0x01, 0x29, 0x0e, 0x15, 0x00, 0x25,
+    0x01, 0x75, 0x01, 0x95, 0x0e, 0x81, 0x02, 0x75, 0x06, 0x95, 0x01, 0x81, 0x01, 0x05, 0x01, 0x09,
+    0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02, 0x06, 0x00,
+    0xff, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x85, 0x31, 0x09, 0x31, 0x95, 0x4d, 0x81, 0x02,
+    0x09, 0x3b, 0x91, 0x02, 0x85, 0x32, 0x09, 0x32, 0x95, 0x8d, 0x81, 0x02, 0x09, 0x3c, 0x91, 0x02,
+    0x85, 0x33, 0x09, 0x33, 0x95, 0xcd, 0x81, 0x02, 0x09, 0x3d, 0x91, 0x02, 0x85, 0x34, 0x09, 0x34,
+    0x96, 0x0d, 0x01, 0x81, 0x02, 0x09, 0x3e, 0x91, 0x02, 0x85, 0x35, 0x09, 0x35, 0x96, 0x4d, 0x01,
+    0x81, 0x02, 0x09, 0x3f, 0x91, 0x02, 0x85, 0x36, 0x09, 0x36, 0x96, 0x8d, 0x01, 0x81, 0x02, 0x09,
+    0x40, 0x91, 0x02, 0x85, 0x37, 0x09, 0x37, 0x96, 0xcd, 0x01, 0x81, 0x02, 0x09, 0x41, 0x91, 0x02,
+    0x85, 0x38, 0x09, 0x38, 0x96, 0x0d, 0x02, 0x81, 0x02, 0x09, 0x42, 0x91, 0x02, 0x85, 0x39, 0x09,
+    0x39, 0x96, 0x22, 0x02, 0x81, 0x02, 0x09, 0x43, 0x91, 0x02, 0x06, 0x80, 0xff, 0x85, 0x05, 0x09,
+    0x33, 0x95, 0x28, 0xb1, 0x02, 0x85, 0x08, 0x09, 0x34, 0x95, 0x2f, 0xb1, 0x02, 0x85, 0x09, 0x09,
+    0x24, 0x95, 0x13, 0xb1, 0x02, 0x85, 0x20, 0x09, 0x26, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x22, 0x09,
+    0x40, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x80, 0x09, 0x28, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x81, 0x09,
+    0x29, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x82, 0x09, 0x2a, 0x95, 0x09, 0xb1, 0x02, 0x85, 0x83, 0x09,
+    0x2b, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf0, 0x09, 0x47, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf1, 0x09,
+    0x48, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf2, 0x09, 0x49, 0x95, 0x0f, 0xb1, 0x02, 0xc0,
+};
+
+static const u8 ds4_descriptor[] = {
+    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35,
+    0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x04, 0x81, 0x02, 0x09, 0x39, 0x15, 0x00, 0x25,
+    0x07, 0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x05, 0x09, 0x19, 0x01, 0x29, 0x0e, 0x15, 0x00, 0x25,
+    0x01, 0x75, 0x01, 0x95, 0x0e, 0x81, 0x02, 0x75, 0x06, 0x95, 0x01, 0x81, 0x01, 0x05, 0x01, 0x09,
+    0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02, 0x06, 0x04,
+    0xff, 0x85, 0x02, 0x09, 0x24, 0x95, 0x24, 0xb1, 0x02, 0x85, 0xa3, 0x09, 0x25, 0x95, 0x30, 0xb1,
+    0x02, 0x85, 0x05, 0x09, 0x26, 0x95, 0x28, 0xb1, 0x02, 0x85, 0x06, 0x09, 0x27, 0x95, 0x34, 0xb1,
+    0x02, 0x85, 0x07, 0x09, 0x28, 0x95, 0x30, 0xb1, 0x02, 0x85, 0x08, 0x09, 0x29, 0x95, 0x2f, 0xb1,
+    0x02, 0x85, 0x09, 0x09, 0x2a, 0x95, 0x13, 0xb1, 0x02, 0x06, 0x03, 0xff, 0x85, 0x03, 0x09, 0x21,
+    0x95, 0x26, 0xb1, 0x02, 0x85, 0x04, 0x09, 0x22, 0x95, 0x2e, 0xb1, 0x02, 0x85, 0xf0, 0x09, 0x47,
+    0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf1, 0x09, 0x48, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf2, 0x09, 0x49,
+    0x95, 0x0f, 0xb1, 0x02, 0x06, 0x00, 0xff, 0x85, 0x11, 0x09, 0x20, 0x15, 0x00, 0x26, 0xff, 0x00,
+    0x75, 0x08, 0x95, 0x4d, 0x81, 0x02, 0x09, 0x21, 0x91, 0x02, 0x85, 0x12, 0x09, 0x22, 0x95, 0x8d,
+    0x81, 0x02, 0x09, 0x23, 0x91, 0x02, 0x85, 0x13, 0x09, 0x24, 0x95, 0xcd, 0x81, 0x02, 0x09, 0x25,
+    0x91, 0x02, 0x85, 0x14, 0x09, 0x26, 0x96, 0x0d, 0x01, 0x81, 0x02, 0x09, 0x27, 0x91, 0x02, 0x85,
+    0x15, 0x09, 0x28, 0x96, 0x4d, 0x01, 0x81, 0x02, 0x09, 0x29, 0x91, 0x02, 0x85, 0x16, 0x09, 0x2a,
+    0x96, 0x8d, 0x01, 0x81, 0x02, 0x09, 0x2b, 0x91, 0x02, 0x85, 0x17, 0x09, 0x2c, 0x96, 0xcd, 0x01,
+    0x81, 0x02, 0x09, 0x2d, 0x91, 0x02, 0x85, 0x18, 0x09, 0x2e, 0x96, 0x0d, 0x02, 0x81, 0x02, 0x09,
+    0x2f, 0x91, 0x02, 0x85, 0x19, 0x09, 0x30, 0x96, 0x22, 0x02, 0x81, 0x02, 0x09, 0x31, 0x91, 0x02,
+    0xc0,
+};
+
+struct ps_state {
+    u8 ds4;
+    u8 edge;
+    u8 usb;
+    u8 extended;                 /* Bluetooth: the host asked for the extended report */
+    u8 address[6];
+    u16 gyro_speed, gyro_accel;
+    u8 counter;
+    u32 sequence;
+    struct imu_sample motion;
+    struct imu_pointer pointer;
+    /* M puts a finger on the touchpad and the gyro moves it; a tap of M
+     * is the touchpad click. */
+    struct { u16 w, h; u8 down, id, clicking; s32 x, y; u32 start, click; } touch;
+    u8 rumble[2];
+    u8 has_lightbar, lightbar[3];
+    u8 has_players, players;
+};
+#define ps PROFILE_STATE(struct ps_state)
+_Static_assert(sizeof(struct ps_state) <= PROFILE_RAM, "ps state");
+
+/* CRC-32 (IEEE, reflected, as zlib's), four bits at a time. */
+static u32 crc32(u32 crc, const u8 *d, u16 n)
+{
+    static const u32 t[16] = {
+        0x00000000, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190, 0x6b6b51f4, 0x4db26158, 0x5005713c,
+        0xedb88320, 0xf00f9344, 0xd6d6a3e8, 0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c,
+    };
+
+    crc = ~crc;
+    while (n--) {
+        crc ^= *d++;
+        crc = (crc >> 4) ^ t[crc & 15];
+        crc = (crc >> 4) ^ t[crc & 15];
+    }
+    return ~crc;
+}
+
+/* The CRC over the HIDP header (0xa1 input, 0xa3 feature), the report id and
+ * the body, in the body's last four bytes. */
+static void seal(u8 header, u8 id, u8 *body, u16 size)
+{
+    u8 prefix[2] = { header, id };
+
+    util_put32(body + size - 4, crc32(crc32(0, prefix, 2), body, (u16)(size - 4)));
+}
+
+static u8 stick8(s16 v)
+{
+    return (u8)(((s32)v + 32768) >> 8);
+}
+
+/* Hat and faces (by position: the bottom one is cross), shoulders and
+ * sticks, then PS, the touchpad click, and the DualSense's mute and paddles. */
+static void buttons(u32 b, u8 *out)
+{
+    out[0] = in_hat(b);
+    if (b & PAD_WEST) out[0] |= 0x10;
+    if (b & PAD_SOUTH) out[0] |= 0x20;
+    if (b & PAD_EAST) out[0] |= 0x40;
+    if (b & PAD_NORTH) out[0] |= 0x80;
+    out[1] = 0;
+    if (b & PAD_L1) out[1] |= 0x01;
+    if (b & PAD_R1) out[1] |= 0x02;
+    if (b & PAD_L2) out[1] |= 0x04;
+    if (b & PAD_R2) out[1] |= 0x08;
+    if (b & PAD_SELECT) out[1] |= 0x10;
+    if (b & PAD_START) out[1] |= 0x20;
+    if (b & PAD_L3) out[1] |= 0x40;
+    if (b & PAD_R3) out[1] |= 0x80;
+    out[2] = 0;
+    if (b & PAD_HOME) out[2] |= 0x01;
+    if (b & PAD_M) out[2] |= 0x02;
+    if (!ps.ds4) {
+        if (b & PAD_SCREENSHOT) out[2] |= 0x04;
+        if (ps.edge && (b & PAD_L4)) out[2] |= 0x40;
+        if (ps.edge && (b & PAD_R4)) out[2] |= 0x80;
+    }
+}
+
+/* Gyro then accelerometer, in the controllers' own frame. */
+static void motion(u8 *out)
+{
+    const struct imu_sample *s = &ps.motion;
+
+    util_put16(out + 0, (u16)s->gyro[1]);
+    util_put16(out + 2, (u16)s->gyro[2]);
+    util_put16(out + 4, (u16)s->gyro[0]);
+    util_put16(out + 6, (u16)(s16)-s->accel[1]);
+    util_put16(out + 8, (u16)s->accel[2]);
+    util_put16(out + 10, (u16)(s16)-s->accel[0]);
+}
+
+/* The buttons for the host: M is the touchpad's. */
+static u32 touch_update(const struct pad *p, u32 now)
+{
+    int held = (p->buttons & PAD_M) != 0;
+    u32 b = p->buttons & ~(u32)PAD_M;
+    s32 x, y;
+
+    /* Taken every report, so turns made without the finger are dropped. */
+    imu_pointer(&ps.pointer, p, ps.gyro_speed, ps.gyro_accel, &x, &y);
+    if (ps.touch.clicking) {
+        if (now - ps.touch.click < TOUCH_CLICK_MS && !held) {
+            return b | PAD_M;
+        }
+        ps.touch.clicking = ps.touch.down = 0;
+    }
+    if (held && !ps.touch.down) {
+        ps.touch.down = 1;
+        ps.touch.id = (u8)((ps.touch.id + 1) & 0x7f);
+        ps.touch.x = ps.touch.w / 2;
+        ps.touch.y = ps.touch.h / 2;
+        ps.touch.start = now;
+    } else if (held) {
+        ps.touch.x += x;
+        ps.touch.y += y;
+        if (ps.touch.x < 0) ps.touch.x = 0;
+        if (ps.touch.x > ps.touch.w - 1) ps.touch.x = ps.touch.w - 1;
+        if (ps.touch.y < 0) ps.touch.y = 0;
+        if (ps.touch.y > ps.touch.h - 1) ps.touch.y = ps.touch.h - 1;
+    } else if (ps.touch.down) {
+        if (now - ps.touch.start < TOUCH_TAP_MS) {
+            ps.touch.clicking = 1;
+            ps.touch.click = now;
+            b |= PAD_M;
+        } else {
+            ps.touch.down = 0;
+        }
+    }
+    return b;
+}
+
+/* One touch point: bit 7 of the first byte is "no finger". */
+static void touch_point(u8 *pt)
+{
+    if (!ps.touch.down) {
+        pt[0] = 0x80;
+        return;
+    }
+    pt[0] = ps.touch.id;
+    pt[1] = (u8)ps.touch.x;
+    pt[2] = (u8)(((ps.touch.x >> 8) & 0x0f) | ((ps.touch.y & 0x0f) << 4));
+    pt[3] = (u8)(ps.touch.y >> 4);
+}
+
+static u8 begin(const struct profile_session *s)
+{
+    u8 ds4 = ps.ds4, edge = ps.edge;
+
+    memset(&ps, 0, sizeof(ps));
+    ps.ds4 = ds4;
+    ps.edge = edge;
+    ps.usb = s->usb;
+    memcpy(ps.address, s->address, 6);
+    ps.gyro_speed = s->settings ? s->settings->gyro_speed : 32;
+    ps.gyro_accel = s->settings ? s->settings->gyro_accel : 250;
+    ps.touch.w = 1920;
+    ps.touch.h = ds4 ? 942 : 1080;
+    return IMU_MOTION;
+}
+
+static u8 begin_ds(const struct profile_session *s)
+{
+    ps.ds4 = 0;
+    ps.edge = 0;
+    return begin(s);
+}
+
+static u8 begin_dsedge(const struct profile_session *s)
+{
+    ps.ds4 = 0;
+    ps.edge = 1;
+    return begin(s);
+}
+
+static u8 begin_ds4(const struct profile_session *s)
+{
+    ps.ds4 = 1;
+    return begin(s);
+}
+
+static int report(const struct pad *in, u32 now, u8 *r, u8 *id)
+{
+    u32 b;
+    u8 *st;
+
+    if (in->imu_count) ps.motion = in->imu[in->imu_count - 1];
+    b = touch_update(in, now);
+    memset(r, 0, EXTENDED_SIZE);
+    if (!ps.usb && !ps.extended) {
+        /* Both pads' simple report: sticks, hat and 14 buttons, a counter,
+         * triggers. */
+        r[0] = stick8(in->lx);
+        r[1] = stick8(in->ly);
+        r[2] = stick8(in->rx);
+        r[3] = stick8(in->ry);
+        buttons(b, r + 4);
+        r[6] = (u8)((r[6] & 0x03) | (u8)(ps.counter << 2));
+        r[7] = (u8)(in->l2 >> 8);
+        r[8] = (u8)(in->r2 >> 8);
+        *id = SIMPLE;
+        ps.counter++;
+        return SIMPLE_SIZE;
+    }
+    if (ps.ds4) {
+        /* Two bytes of Bluetooth header (0xc0: HID data follows), the
+         * 32-byte state USB also sends, touch frames, the CRC. */
+        st = r + 2;
+        r[0] = 0xc0;
+        st[0] = stick8(in->lx);
+        st[1] = stick8(in->ly);
+        st[2] = stick8(in->rx);
+        st[3] = stick8(in->ry);
+        buttons(b, st + 4);
+        st[6] = (u8)((st[6] & 0x03) | (u8)(ps.counter << 2));
+        st[7] = (u8)(in->l2 >> 8);
+        st[8] = (u8)(in->r2 >> 8);
+        motion(st + 12);
+        /* A DualShock 4 reports pitch with the opposite sign to the
+         * DualSense, whose layout motion() follows. */
+        util_put16(st + 12, (u16)(s16)-(s16)(st[12] | st[13] << 8));
+        util_put16(st + 9, (u16)((ps.motion.us * 3ull) >> 4));    /* 16/3 us units */
+        st[29] = 0x0a;                                            /* no cable, full */
+        r[34] = 1;
+        r[35] = ps.counter;
+        touch_point(r + 36);
+        r[40] = 0x80;
+        if (ps.usb) {
+            st[29] = 0x1b;                                        /* cable, full */
+            memmove(r, st, USB_STATE_SIZE);
+            *id = USB_STATE;
+            ps.counter++;
+            return USB_STATE_SIZE;
+        }
+        seal(0xa1, DS4_EXTENDED, r, EXTENDED_SIZE);
+        *id = DS4_EXTENDED;
+    } else {
+        st = r + 1;
+        r[0] = (u8)(ps.counter << 4);
+        st[0] = stick8(in->lx);
+        st[1] = stick8(in->ly);
+        st[2] = stick8(in->rx);
+        st[3] = stick8(in->ry);
+        st[4] = (u8)(in->l2 >> 8);
+        st[5] = (u8)(in->r2 >> 8);
+        st[6] = ps.counter;
+        buttons(b, st + 7);
+        util_put32(st + 11, ps.sequence++);
+        motion(st + 15);
+        util_put32(st + 27, ps.motion.us * 3);                    /* 1/3 us units */
+        st[31] = 0x16;
+        touch_point(st + 32);
+        st[36] = 0x80;
+        st[52] = 0x0a;
+        if (ps.usb) {
+            st[52] = 0x2a;                                        /* full, on the cable */
+            memmove(r, st, USB_STATE_SIZE);
+            *id = USB_STATE;
+            ps.counter++;
+            return USB_STATE_SIZE;
+        }
+        seal(0xa1, DS_EXTENDED, r, EXTENDED_SIZE);
+        *id = DS_EXTENDED;
+    }
+    ps.counter++;
+    return EXTENDED_SIZE;
+}
+
+/* Output report: flags say which of rumble, lightbar and player lights it
+ * sets; the rest stay as they were. */
+static int write(const struct bt_write *w, u32 now, struct bt_bond *bond)
+{
+    u32 head = ps.usb ? 0 : 2;   /* Bluetooth's header in front */
+    const u8 *e = w->data + head;
+    u32 n, count;
+
+    (void)now;
+    (void)bond;
+    if (w->kind != BT_WRITE_OUTPUT) return 0;
+    if (w->id == (ps.ds4 ? DS4_EXTENDED : DS_EXTENDED)) ps.extended = 1;
+    if (ps.ds4) {
+        if (w->id != (ps.usb ? DS4_USB_OUTPUT : DS4_EXTENDED) || w->len < head + 10) return 0;
+        if (e[0] & 0x01) {
+            ps.rumble[0] = e[4];
+            ps.rumble[1] = e[3];
+        }
+        if (e[0] & 0x02) {
+            ps.has_lightbar = 1;
+            memcpy(ps.lightbar, e + 5, 3);
+        }
+        return 0;
+    }
+    if (w->id != (ps.usb ? DS_USB_OUTPUT : DS_EXTENDED) || w->len < head + 39) return 0;
+    if ((e[0] & 0x01) || (e[38] & 0x04)) {
+        ps.rumble[0] = e[3];
+        ps.rumble[1] = e[2];
+    } else if (!e[1]) {
+        ps.rumble[0] = ps.rumble[1] = 0;
+    }
+    if (w->len < head + 47) return 0;
+    if (e[1] & 0x04) {
+        ps.has_lightbar = 1;
+        memcpy(ps.lightbar, e + 44, 3);
+    }
+    if (e[1] & 0x10) {
+        /* Five lights lit symmetrically; the count is the player number,
+         * shown the way a Nintendo pad shows it (first light at the top). */
+        static const u8 nintendo[] = { 0x0, 0x1, 0x3, 0x7, 0xf, 0x9, 0x5, 0xd, 0x6 };
+
+        for (n = e[43] & 0x1f, count = 0; n; n &= n - 1) count++;
+        ps.has_players = 1;
+        ps.players = nintendo[count];
+    }
+    return 0;
+}
+
+static void host(u32 now, struct profile_host *h)
+{
+    (void)now;
+    h->rumble[0] = ps.rumble[0];
+    h->rumble[1] = ps.rumble[1];
+    h->has_lightbar = ps.has_lightbar;
+    memcpy(h->lightbar, ps.lightbar, 3);
+    h->has_players = ps.has_players;
+    h->players = ps.players;
+    h->imu = IMU_MOTION;
+}
+
+/* 8000 counts at 500 degrees a second and 8192 a g: what the sensor gives.
+ * Bluetooth DualShock 4 order: the three gyro plus points, then minus. */
+static void calibration(u8 *r, int ds4)
+{
+    u32 i;
+
+    for (i = 0; i < 3; i++) {
+        util_put16(r + 6 + 4 * i, 8000);
+        util_put16(r + 8 + 4 * i, (u16)(s16)-8000);
+    }
+    if (ds4)
+        for (i = 0; i < 3; i++) {
+            util_put16(r + 6 + 2 * i, 8000);
+            util_put16(r + 12 + 2 * i, (u16)(s16)-8000);
+        }
+    util_put16(r + 18, 500);
+    util_put16(r + 20, 500);
+    for (i = 0; i < 3; i++) {
+        util_put16(r + 22 + 4 * i, 8192);
+        util_put16(r + 24 + 4 * i, (u16)(s16)-8192);
+    }
+}
+
+/* Feature reports the host reads: constant data, and our address. */
+static int read(u8 kind, u16 id, u16 offset, u8 *r, u16 size)
+{
+    (void)offset;
+    if (kind != BT_WRITE_FEATURE) return -1;
+    if (id == 0x05 || (ps.ds4 && id == 0x02)) ps.extended = 1;    /* the calibration */
+    memset(r, 0, size);
+    if (ps.ds4) {
+        switch (id) {
+        case 0x02:               /* USB: the gyro's plus and minus points interleaved */
+            if (size < 34) return -1;
+            calibration(r, !ps.usb);
+            return size;
+        case 0x12:               /* USB: our address */
+            if (!ps.usb || size < 15) return -1;
+            memcpy(r, ps.address, 6);
+            return size;
+        case 0x05:
+            if (size < 38) return -1;
+            calibration(r, 1);
+            seal(0xa3, (u8)id, r, size);
+            return size;
+        case 0xa3:
+            if (size < 42) return -1;
+            memcpy(r, "Sep 30 2026", 11);
+            memcpy(r + 16, "00:00:00", 8);
+            util_put16(r + 34, 0x0100);
+            util_put16(r + 40, 0x0100);
+            return size;
+        }
+        return -1;
+    }
+    switch (id) {
+    case 0x05:
+        if (size < 40) return -1;
+        calibration(r, 0);
+        break;
+    case 0x09:
+        if (size < 10) return -1;
+        memcpy(r, ps.address, 6);
+        break;
+    case 0x20:
+        if (size < 49) return -1;
+        util_put16(r + 43, 0x0400);
+        break;
+    default:
+        return -1;
+    }
+    if (!ps.usb) seal(0xa3, (u8)id, r, size);
+    return size;
+}
+
+static const struct bt_device ds_device = {
+    .transport = BT_CLASSIC, .name = "DualSense Wireless Controller", .class_of_device = 0x002508,
+    .vendor_id = 0x054c, .product_id = 0x0ce6, .version = 0x0100,
+    .hid_descriptor = ds_descriptor, .hid_descriptor_len = sizeof(ds_descriptor),
+    .sniff_slots = 24, .sniff_attempt = 1,
+};
+
+static const struct bt_device ds_edge_device = {
+    .transport = BT_CLASSIC, .name = "DualSense Edge Wireless Controller", .class_of_device = 0x002508,
+    .vendor_id = 0x054c, .product_id = 0x0df2, .version = 0x0100,
+    .hid_descriptor = ds_descriptor, .hid_descriptor_len = sizeof(ds_descriptor),
+    .sniff_slots = 24, .sniff_attempt = 1,
+};
+
+static const struct usb_identity ds_edge_usb = {
+    .vendor_id = 0x054c, .product_id = 0x0df2, .bcd_device = 0x0100,
+    .manufacturer = "Sony Interactive Entertainment", .product = "DualSense Edge Wireless Controller",
+    .kind = USB_HID, .report_ids = 1, .interval = 1, .in_size = 64, .out_size = 64,
+    .max_power = 250, .hid_descriptor = ds_usb_descriptor, .hid_descriptor_len = sizeof(ds_usb_descriptor),
+};
+
+static const struct bt_device ds4_device = {
+    .transport = BT_CLASSIC, .name = "Wireless Controller", .class_of_device = 0x002508,
+    .vendor_id = 0x054c, .product_id = 0x09cc, .version = 0x0100,
+    .hid_descriptor = ds4_descriptor, .hid_descriptor_len = sizeof(ds4_descriptor),
+    .sniff_slots = 24, .sniff_attempt = 1,
+};
+
+/* The wired DualSense; Linux and SDL take the Edge's ID only with its own
+ * longer reports. */
+static const struct usb_identity ds_usb = {
+    .vendor_id = 0x054c, .product_id = 0x0ce6, .bcd_device = 0x0100,
+    .manufacturer = "Sony Interactive Entertainment", .product = "DualSense Wireless Controller",
+    .kind = USB_HID, .report_ids = 1, .interval = 1, .in_size = 64, .out_size = 64,
+    .max_power = 250, .hid_descriptor = ds_usb_descriptor, .hid_descriptor_len = sizeof(ds_usb_descriptor),
+};
+
+static const struct usb_identity ds4_usb = {
+    .vendor_id = 0x054c, .product_id = 0x09cc, .bcd_device = 0x0100,
+    .manufacturer = "Sony Interactive Entertainment", .product = "Wireless Controller",
+    .kind = USB_HID, .report_ids = 1, .interval = 1, .in_size = 64, .out_size = 64,
+    .max_power = 250, .hid_descriptor = ds4_usb_descriptor, .hid_descriptor_len = sizeof(ds4_usb_descriptor),
+};
+
+/* ---- DualSense Edge over LE ----------------------------------------------------
+ * HID over GATT, which no real DualSense speaks: the Bluetooth reports and
+ * CRCs as over Classic, the host taking the Sony PnP ID as a Bluetooth pad
+ * (Linux's HID over GATT does).  Always the extended report: the map has
+ * report 0x01 but no characteristic for it.  The map is the Classic one
+ * without the reports nobody reads (0x32-0x39, features 0x08, 0x22,
+ * 0x80-0x83, 0xf0-0xf2).
+ *
+ * GATT database from this .gatt (BTstack's compile_gatt.py), the map inline:
+ *
+ * PRIMARY_SERVICE, GAP_SERVICE
+ * CHARACTERISTIC, GAP_DEVICE_NAME, READ, "DualSense Edge Controller"
+ * CHARACTERISTIC, GAP_APPEARANCE, READ, C4 03
+ * CHARACTERISTIC, GAP_PERIPHERAL_PREFERRED_CONNECTION_PARAMETERS, READ, 06 00 09 00 00 00 90 01
+ * PRIMARY_SERVICE, GATT_SERVICE
+ * CHARACTERISTIC, GATT_SERVICE_CHANGED, READ | INDICATE | DYNAMIC,
+ * PRIMARY_SERVICE, ORG_BLUETOOTH_SERVICE_DEVICE_INFORMATION
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_PNP_ID, READ, 02 4c 05 f2 0d 00 01
+ * PRIMARY_SERVICE, ORG_BLUETOOTH_SERVICE_BATTERY_SERVICE
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_BATTERY_LEVEL, READ, 64
+ * PRIMARY_SERVICE, ORG_BLUETOOTH_SERVICE_HUMAN_INTERFACE_DEVICE
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_HID_INFORMATION, READ, 11 01 00 02
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_REPORT_MAP, READ, (128 bytes)
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_REPORT, READ | NOTIFY | DYNAMIC | ENCRYPTION_KEY_SIZE_16,   0x0018
+ * REPORT_REFERENCE, READ, 31, 1
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_REPORT, READ | WRITE | WRITE_WITHOUT_RESPONSE | DYNAMIC | ENCRYPTION_KEY_SIZE_16,   0x001c
+ * REPORT_REFERENCE, READ, 31, 2
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_REPORT, READ | WRITE | DYNAMIC | ENCRYPTION_KEY_SIZE_16,   0x001f
+ * REPORT_REFERENCE, READ, 05, 3
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_REPORT, READ | WRITE | DYNAMIC | ENCRYPTION_KEY_SIZE_16,   0x0022
+ * REPORT_REFERENCE, READ, 09, 3
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_REPORT, READ | WRITE | DYNAMIC | ENCRYPTION_KEY_SIZE_16,   0x0025
+ * REPORT_REFERENCE, READ, 20, 3
+ * CHARACTERISTIC, ORG_BLUETOOTH_CHARACTERISTIC_HID_CONTROL_POINT, WRITE_WITHOUT_RESPONSE | DYNAMIC,
+ */
+#define BLE_INPUT  0x0018
+#define BLE_OUTPUT 0x001c
+
+static const u8 ble_att_db[] = {
+    0x01, 0x0a, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x28, 0x00, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x02,
+    0x00, 0x03, 0x28, 0x02, 0x03, 0x00, 0x00, 0x2a, 0x21, 0x00, 0x02, 0x00, 0x03, 0x00, 0x00, 0x2a,
+    0x44, 0x75, 0x61, 0x6c, 0x53, 0x65, 0x6e, 0x73, 0x65, 0x20, 0x45, 0x64, 0x67, 0x65, 0x20, 0x43,
+    0x6f, 0x6e, 0x74, 0x72, 0x6f, 0x6c, 0x6c, 0x65, 0x72, 0x0d, 0x00, 0x02, 0x00, 0x04, 0x00, 0x03,
+    0x28, 0x02, 0x05, 0x00, 0x01, 0x2a, 0x0a, 0x00, 0x02, 0x00, 0x05, 0x00, 0x01, 0x2a, 0xc4, 0x03,
+    0x0d, 0x00, 0x02, 0x00, 0x06, 0x00, 0x03, 0x28, 0x02, 0x07, 0x00, 0x04, 0x2a, 0x10, 0x00, 0x02,
+    0x00, 0x07, 0x00, 0x04, 0x2a, 0x06, 0x00, 0x09, 0x00, 0x00, 0x00, 0x90, 0x01, 0x0a, 0x00, 0x02,
+    0x00, 0x08, 0x00, 0x00, 0x28, 0x01, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x09, 0x00, 0x03, 0x28, 0x22,
+    0x0a, 0x00, 0x05, 0x2a, 0x08, 0x00, 0x02, 0x01, 0x0a, 0x00, 0x05, 0x2a, 0x0a, 0x00, 0x0e, 0x01,
+    0x0b, 0x00, 0x02, 0x29, 0x00, 0x00, 0x0a, 0x00, 0x02, 0x00, 0x0c, 0x00, 0x00, 0x28, 0x0a, 0x18,
+    0x0d, 0x00, 0x02, 0x00, 0x0d, 0x00, 0x03, 0x28, 0x02, 0x0e, 0x00, 0x50, 0x2a, 0x0f, 0x00, 0x02,
+    0x00, 0x0e, 0x00, 0x50, 0x2a, 0x02, 0x4c, 0x05, 0xf2, 0x0d, 0x00, 0x01, 0x0a, 0x00, 0x02, 0x00,
+    0x0f, 0x00, 0x00, 0x28, 0x0f, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x10, 0x00, 0x03, 0x28, 0x02, 0x11,
+    0x00, 0x19, 0x2a, 0x09, 0x00, 0x02, 0x00, 0x11, 0x00, 0x19, 0x2a, 0x64, 0x0a, 0x00, 0x02, 0x00,
+    0x12, 0x00, 0x00, 0x28, 0x12, 0x18, 0x0d, 0x00, 0x02, 0x00, 0x13, 0x00, 0x03, 0x28, 0x02, 0x14,
+    0x00, 0x4a, 0x2a, 0x0c, 0x00, 0x02, 0x00, 0x14, 0x00, 0x4a, 0x2a, 0x11, 0x01, 0x00, 0x02, 0x0d,
+    0x00, 0x02, 0x00, 0x15, 0x00, 0x03, 0x28, 0x02, 0x16, 0x00, 0x4b, 0x2a, 0x88, 0x00, 0x02, 0x00,
+    0x16, 0x00, 0x4b, 0x2a, 0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, 0x01, 0x09, 0x30, 0x09, 0x31,
+    0x09, 0x32, 0x09, 0x35, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x04, 0x81, 0x02, 0x09,
+    0x39, 0x15, 0x00, 0x25, 0x07, 0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x05, 0x09, 0x19, 0x01, 0x29,
+    0x0e, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0e, 0x81, 0x02, 0x75, 0x06, 0x95, 0x01, 0x81,
+    0x01, 0x05, 0x01, 0x09, 0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x02,
+    0x81, 0x02, 0x06, 0x00, 0xff, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x85, 0x31, 0x09, 0x31,
+    0x95, 0x4d, 0x81, 0x02, 0x09, 0x3b, 0x91, 0x02, 0x06, 0x80, 0xff, 0x85, 0x05, 0x09, 0x33, 0x95,
+    0x28, 0xb1, 0x02, 0x85, 0x09, 0x09, 0x24, 0x95, 0x13, 0xb1, 0x02, 0x85, 0x20, 0x09, 0x26, 0x95,
+    0x3f, 0xb1, 0x02, 0xc0, 0x0d, 0x00, 0x02, 0x00, 0x17, 0x00, 0x03, 0x28, 0x12, 0x18, 0x00, 0x4d,
+    0x2a, 0x08, 0x00, 0x03, 0xf5, 0x18, 0x00, 0x4d, 0x2a, 0x0a, 0x00, 0x0f, 0xf1, 0x19, 0x00, 0x02,
+    0x29, 0x00, 0x00, 0x0a, 0x00, 0x02, 0x00, 0x1a, 0x00, 0x08, 0x29, 0x31, 0x01, 0x0d, 0x00, 0x02,
+    0x00, 0x1b, 0x00, 0x03, 0x28, 0x0e, 0x1c, 0x00, 0x4d, 0x2a, 0x08, 0x00, 0x0f, 0xf5, 0x1c, 0x00,
+    0x4d, 0x2a, 0x0a, 0x00, 0x02, 0x00, 0x1d, 0x00, 0x08, 0x29, 0x31, 0x02, 0x0d, 0x00, 0x02, 0x00,
+    0x1e, 0x00, 0x03, 0x28, 0x0a, 0x1f, 0x00, 0x4d, 0x2a, 0x08, 0x00, 0x0b, 0xf5, 0x1f, 0x00, 0x4d,
+    0x2a, 0x0a, 0x00, 0x02, 0x00, 0x20, 0x00, 0x08, 0x29, 0x05, 0x03, 0x0d, 0x00, 0x02, 0x00, 0x21,
+    0x00, 0x03, 0x28, 0x0a, 0x22, 0x00, 0x4d, 0x2a, 0x08, 0x00, 0x0b, 0xf5, 0x22, 0x00, 0x4d, 0x2a,
+    0x0a, 0x00, 0x02, 0x00, 0x23, 0x00, 0x08, 0x29, 0x09, 0x03, 0x0d, 0x00, 0x02, 0x00, 0x24, 0x00,
+    0x03, 0x28, 0x0a, 0x25, 0x00, 0x4d, 0x2a, 0x08, 0x00, 0x0b, 0xf5, 0x25, 0x00, 0x4d, 0x2a, 0x0a,
+    0x00, 0x02, 0x00, 0x26, 0x00, 0x08, 0x29, 0x20, 0x03, 0x0d, 0x00, 0x02, 0x00, 0x27, 0x00, 0x03,
+    0x28, 0x04, 0x28, 0x00, 0x4c, 0x2a, 0x08, 0x00, 0x04, 0x01, 0x28, 0x00, 0x4c, 0x2a, 0x00, 0x00,
+};
+
+/* The feature reports' characteristics, their ids and sizes without the id. */
+static const struct { u16 handle; u8 id, size; } ble_features[] = {
+    { 0x001f, 0x05, 40 }, { 0x0022, 0x09, 19 }, { 0x0025, 0x20, 63 },
+};
+
+static u8 ble_er[16], ble_ir[16];
+
+static u8 begin_ble(const struct profile_session *s)
+{
+    static const u8 firmware_key[16] = { 'C', 'Y', 'C', 'L', 'O', 'N', 'E', '2',
+                                         '-', 'D', 'U', 'A', 'L', 'S', 'N', 'S' };
+    u8 block[16], imu;
+
+    ps.ds4 = 0;
+    ps.edge = 1;
+    imu = begin(s);
+    ps.extended = 1;
+    /* LE security keys for this slot, as profile_xbox.c makes them. */
+    memset(block, 0, sizeof(block));
+    memcpy(block, s->address, 6);
+    block[6] = s->slot;
+    block[15] = 'E';
+    util_aes128(firmware_key, block, ble_er);
+    block[15] = 'I';
+    util_aes128(firmware_key, block, ble_ir);
+    return imu;
+}
+
+/* The output report's characteristic is report 0x31; the rest as Classic. */
+static int write_ble(const struct bt_write *w, u32 now, struct bt_bond *bond)
+{
+    struct bt_write out;
+
+    if (ps.usb || w->kind != BT_WRITE_ATT) return write(w, now, bond);
+    if (w->id != BLE_OUTPUT) return 0;
+    out = *w;
+    out.kind = BT_WRITE_OUTPUT;
+    out.id = DS_EXTENDED;
+    return write(&out, now, bond);
+}
+
+/* Bluetooth thread: a feature report's characteristic, sealed as Classic's. */
+static int read_ble(u8 kind, u16 id, u16 offset, u8 *r, u16 size)
+{
+    u32 i;
+
+    if (ps.usb || kind != BT_WRITE_ATT) return read(kind, id, offset, r, size);
+    for (i = 0; i < sizeof(ble_features) / sizeof(ble_features[0]); i++)
+        if (ble_features[i].handle == id && size >= ble_features[i].size)
+            return read(BT_WRITE_FEATURE, ble_features[i].id, 0, r, ble_features[i].size);
+    return -1;
+}
+
+static u8 ble_advertising(const struct bt_bond *bond, int pairing, int wake, u8 out[31])
+{
+    /* Flags, appearance gamepad, the HID service. */
+    static const u8 adv[] = { 0x02, 0x01, 0x06, 0x03, 0x19, 0xc4, 0x03, 0x03, 0x03, 0x12, 0x18 };
+
+    (void)bond;
+    (void)wake;
+    memcpy(out, adv, sizeof(adv));
+    out[2] = pairing ? 0x06 : 0x04;    /* general discoverable only when pairing */
+    return sizeof(adv);
+}
+
+static const u8 ble_scan_response[] = {
+    26, 0x09, 'D', 'u', 'a', 'l', 'S', 'e', 'n', 's', 'e', ' ', 'E', 'd', 'g', 'e', ' ',
+    'C', 'o', 'n', 't', 'r', 'o', 'l', 'l', 'e', 'r',
+};
+
+static const struct bt_device ds_ble_device = {
+    .transport = BT_LE,
+    .name = "DualSense Edge Controller",
+    .att_db = ble_att_db,
+    .input_handle = BLE_INPUT,
+    .advertising = ble_advertising,
+    .scan_response = ble_scan_response, .scan_response_len = sizeof(ble_scan_response),
+    .sm_er = ble_er, .sm_ir = ble_ir,
+    .interval_min = 6, .interval_max = 9,
+};
+
+/* 125 reports a second: at 250 the IMU starved (measured 2026-09-30). */
+const struct profile profile_ds5 = {
+    .name = "ds5", .device = &ds_device, .usb = &ds_usb,
+    .begin = begin_ds, .report = report, .write = write, .host = host, .read = read,
+};
+
+const struct profile profile_ds5edge = {
+    .name = "ds5edge", .device = &ds_edge_device, .usb = &ds_edge_usb,
+    .begin = begin_dsedge, .report = report, .write = write, .host = host, .read = read,
+};
+
+const struct profile profile_ds5edge_ble = {
+    .name = "ds5edge-ble", .device = &ds_ble_device, .usb = &ds_edge_usb,
+    .begin = begin_ble, .report = report, .write = write_ble, .host = host, .read = read_ble,
+};
+
+const struct profile profile_ds4 = {
+    .name = "ds4", .device = &ds4_device, .usb = &ds4_usb,
+    .begin = begin_ds4, .report = report, .write = write, .host = host, .read = read,
+};
+
+#ifdef UNITTEST
+u8 profile_ram[PROFILE_RAM] __attribute__((aligned(8)));
+void util_put16(u8 *p, u16 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
+void util_put32(u8 *p, u32 v) { util_put16(p, (u16)v); util_put16(p + 2, (u16)(v >> 16)); }
+void util_aes128(const u8 key[16], const u8 in[16], u8 out[16]) { (void)key; memcpy(out, in, 16); }
+void imu_pointer(struct imu_pointer *p, const struct pad *pad, u16 per_degree, u16 accel,
+                 s32 *x, s32 *y)
+{
+    (void)p; (void)pad; (void)per_degree; (void)accel;
+    *x = 10;
+    *y = 0;
+}
+
+int main(void)
+{
+    struct profile_session s = { 0, 0, { 1, 2, 3, 4, 5, 6 }, 0, 0 };
+    struct pad p;
+    struct bt_write w;
+    struct profile_host h;
+    u8 r[96], id;
+    u8 prefix[2] = { 0xa1, DS_EXTENDED };
+
+    CHECK(begin_ds(&s) == IMU_MOTION);
+    memset(&p, 0, sizeof(p));
+    p.buttons = PAD_SOUTH | PAD_HOME | PAD_L2;
+    p.lx = STICK_MAX;
+    p.l2 = 0xff00;
+    p.imu_count = 1;
+    p.imu[0].gyro[1] = 100;
+    /* Simple until the host reads the calibration. */
+    CHECK(report(&p, 0, r, &id) == SIMPLE_SIZE && id == SIMPLE);
+    CHECK(r[0] == 0xff && r[4] == (HAT_NEUTRAL | 0x20) && (r[5] & 0x04) && (r[6] & 1) && r[7] == 0xff);
+    CHECK(read(BT_WRITE_FEATURE, 0x05, 0, r, 41) == 41);
+    CHECK(report(&p, 0, r, &id) == EXTENDED_SIZE && id == DS_EXTENDED);
+    CHECK(r[1] == 0xff && r[8] == (HAT_NEUTRAL | 0x20) && (r[10] & 1));
+    CHECK(r[16] == 100);
+    CHECK((u32)(r[73] | r[74] << 8 | r[75] << 16 | (u32)r[76] << 24) == crc32(crc32(0, prefix, 2), r, 73));
+
+    p.buttons = PAD_M;
+    report(&p, 0, r, &id);
+    CHECK(ps.touch.down && ps.touch.x == 960);
+    report(&p, 10, r, &id);
+    CHECK(ps.touch.x == 970);
+    p.buttons = 0;
+    report(&p, 20, r, &id);
+    CHECK(ps.touch.clicking && (r[10] & 2));
+
+    memset(&w, 0, sizeof(w));
+    w.kind = BT_WRITE_OUTPUT; w.id = DS_EXTENDED; w.len = 2 + 47;
+    w.data[2] = 0x01; w.data[3] = 0x04 | 0x10; w.data[4] = 30; w.data[5] = 200;
+    w.data[2 + 43] = 0x04; w.data[2 + 44] = 9; w.data[2 + 45] = 8; w.data[2 + 46] = 7;
+    write(&w, 0, 0);
+    host(0, &h);
+    CHECK(h.rumble[0] == 200 && h.rumble[1] == 30);
+    CHECK(h.has_lightbar && h.lightbar[0] == 9 && h.has_players && h.players == 1);
+    w.data[2 + 43] = 0x1f;       /* five lights: player 5, first and fourth */
+    write(&w, 0, 0);
+    host(0, &h);
+    CHECK(h.players == 0x9);
+
+    CHECK(read(BT_WRITE_FEATURE, 0x09, 0, r, 20) == 20 && r[0] == 1 && r[5] == 6);
+
+    begin_ds4(&s);
+    p.buttons = PAD_EAST;
+    CHECK(report(&p, 0, r, &id) == SIMPLE_SIZE && id == SIMPLE && r[4] == (HAT_NEUTRAL | 0x40));
+    w.kind = BT_WRITE_OUTPUT; w.id = DS4_EXTENDED; w.len = 2;
+    write(&w, 0, 0);
+    CHECK(report(&p, 0, r, &id) == EXTENDED_SIZE && id == DS4_EXTENDED && r[0] == 0xc0);
+    CHECK(r[6] == (HAT_NEUTRAL | 0x40));
+    w.id = DS4_EXTENDED; w.len = 12;
+    memset(w.data, 0, sizeof(w.data));
+    w.data[2] = 0x03; w.data[5] = 11; w.data[6] = 22; w.data[7] = 1; w.data[8] = 2; w.data[9] = 3;
+    write(&w, 0, 0);
+    host(0, &h);
+    CHECK(h.rumble[0] == 22 && h.rumble[1] == 11 && h.lightbar[2] == 3);
+    CHECK(read(BT_WRITE_FEATURE, 0x02, 0, r, 37) == 37 && r[6] == (8000 & 0xff));
+    /* Wired: report 0x01 is the state block alone; output and features
+     * without the Bluetooth header and CRC. */
+    s.usb = 1;
+    begin_ds4(&s);
+    p.buttons = PAD_EAST;
+    p.lx = STICK_MAX;
+    CHECK(report(&p, 0, r, &id) == USB_STATE_SIZE && id == USB_STATE);
+    CHECK(r[0] == 0xff && r[4] == (HAT_NEUTRAL | 0x40) && r[29] == 0x1b);
+    memset(&w, 0, sizeof(w));
+    w.kind = BT_WRITE_OUTPUT; w.id = DS4_USB_OUTPUT; w.len = 31;
+    w.data[0] = 0x03; w.data[3] = 5; w.data[4] = 6; w.data[5] = 7;
+    write(&w, 0, 0);
+    host(0, &h);
+    CHECK(h.rumble[0] == 6 && h.rumble[1] == 5 && h.lightbar[0] == 7);
+    CHECK(read(BT_WRITE_FEATURE, 0x12, 0, r, 15) == 15 && r[0] == 1 && r[5] == 6);
+    begin_ds(&s);
+    CHECK(report(&p, 0, r, &id) == USB_STATE_SIZE && id == USB_STATE && r[52] == 0x2a);
+    CHECK(read(BT_WRITE_FEATURE, 0x05, 0, r, 40) == 40 && r[39] == 0);      /* no CRC */
+
+    /* LE: the extended report from the start; the output and the features
+     * by their characteristics, the features sealed as Classic's. */
+    s.usb = 0;
+    CHECK(begin_ble(&s) == IMU_MOTION);
+    CHECK(report(&p, 0, r, &id) == EXTENDED_SIZE && id == DS_EXTENDED);
+    memset(&w, 0, sizeof(w));
+    w.kind = BT_WRITE_ATT; w.id = BLE_OUTPUT; w.len = 77;
+    w.data[2] = 0x01; w.data[4] = 30; w.data[5] = 200;
+    write_ble(&w, 0, 0);
+    host(0, &h);
+    CHECK(h.rumble[0] == 200 && h.rumble[1] == 30);
+    w.id = 0x0028;               /* the control point: nothing */
+    w.data[4] = 0;
+    write_ble(&w, 0, 0);
+    host(0, &h);
+    CHECK(h.rumble[1] == 30);
+    {
+        u8 seed[2] = { 0xa3, 0x05 };
+
+        CHECK(read_ble(BT_WRITE_ATT, 0x001f, 0, r, 80) == 40);
+        CHECK((u32)(r[36] | r[37] << 8 | r[38] << 16 | (u32)r[39] << 24) == crc32(crc32(0, seed, 2), r, 36));
+    }
+    CHECK(read_ble(BT_WRITE_ATT, 0x0022, 0, r, 80) == 19 && r[0] == 1 && r[5] == 6);
+    CHECK(read_ble(BT_WRITE_ATT, 0x0025, 0, r, 80) == 63);
+    CHECK(read_ble(BT_WRITE_ATT, 0x0016, 0, r, 80) == -1);
+    return TEST_DONE("profile_playstation");
+}
+#endif

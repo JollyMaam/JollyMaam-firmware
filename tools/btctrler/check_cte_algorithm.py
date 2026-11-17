@@ -31,7 +31,7 @@ sdk_ir=sdk_ir.replace('@printf(','@cte_test_printf(').replace('@puts(','@cte_tes
 (out/'sdk.ll').write_text(sdk_ir+'\n')
 subprocess.run([args.clang,'-fPIC','-Wno-override-module','-target','x86_64-unknown-linux-gnu','-x','ir','-c',str(out/'sdk.ll'),'-o',str(out/'sdk.o')],check=True)
 (out/"silent.c").write_text('static double values[32]; static int count;\nvoid test_log_reset(void){count=0;}\nint test_log_count(void){return count;}\ndouble test_log_value(int i){return values[i];}\nvoid sdk_put_float(double f){if(count<32)values[count++]=f;}\nvoid put_float(double f){if(count<32)values[count++]=f;}\nint cte_test_printf(const char *f,...){return 0;}\nint cte_test_puts(const char *s){return 0;}\nvoid log_print(int l,void *a,const char *f,...){}\n')
-source=(ROOT/'src/btctrler/bd19/cte_data_algorithm.c').read_text()
+source=(ROOT/'src/platform/jieli/btctrler/bd19/cte_data_algorithm.c').read_text()
 # Export helpers only in the temporary comparison translation unit.
 source=source[:source.index('/* Host regression fixtures. */')]
 for n in ['angle_est_fun','data_pre_processing','mac_data_load']:
