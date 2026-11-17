@@ -1,23 +1,30 @@
 /* Public Classic HCI procedures, recovered from SDK lmp_hci.c. */
 #include "btctrler/glue.h"
 
-int lmp_hci_reset(void)
+#ifdef CONFIG_CPU_BD19
+#define LMP_HCI_CODE __attribute__((section(".classic_lmp_code")))
+#else
+#define LMP_HCI_CODE
+#endif
+
+LMP_HCI_CODE int lmp_hci_reset(void)
 { btctrler_hci_cmd_to_task(0x400002, 1, 0x0c03); return 0; }
-int lmp_hci_write_scan_enable(u8 enable)
+LMP_HCI_CODE int lmp_hci_write_scan_enable(u8 enable)
 { btctrler_hci_cmd_to_task(0x400002, 2, 0x0c1a, enable); return 0; }
-int lmp_hci_set_connection_encryption(u16 handle, int enable)
+LMP_HCI_CODE int lmp_hci_set_connection_encryption(u16 handle, int enable)
 { return lmp_hci_cmd_to_conn_for_handle(handle, 2, 0x0413, enable); }
-void lmp_hci_sniff_mode_command(u16 handle, u16 max_interval, u16 min_interval, u16 attempt, u16 timeout)
+LMP_HCI_CODE void lmp_hci_sniff_mode_command(u16 handle, u16 max_interval, u16 min_interval,
+                                             u16 attempt, u16 timeout)
 { lmp_hci_cmd_to_conn_for_handle(handle, 5, 0x0803, max_interval, min_interval, attempt, timeout); }
-void lmp_hci_exit_sniff_mode_command(u16 handle)
+LMP_HCI_CODE void lmp_hci_exit_sniff_mode_command(u16 handle)
 { lmp_hci_cmd_to_conn_for_handle(handle, 1, 0x0804); }
-void lmp_hci_authentication_requested(u16 handle)
+LMP_HCI_CODE void lmp_hci_authentication_requested(u16 handle)
 { lmp_hci_cmd_to_conn_for_handle(handle, 1, 0x0411); }
 /* The SDK's public setter is a no-op; the HCI parser has its own path. */
-void lmp_hci_write_link_supervision_timeout(u16 handle, int tm)
+LMP_HCI_CODE void lmp_hci_write_link_supervision_timeout(u16 handle, int tm)
 { (void)handle; (void)tm; }
 
-int lmp_hci_disconnect(u16 handle, u8 reason)
+LMP_HCI_CODE int lmp_hci_disconnect(u16 handle, u8 reason)
 {
     if (!(config_btctler_modules & 1)) return 0;
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
@@ -28,69 +35,75 @@ int lmp_hci_disconnect(u16 handle, u8 reason)
     }
     return lmp_hci_cmd_to_conn_for_handle(handle, 2, 0x0406, reason);
 }
-int lmp_hci_test_key_cmd(u8 cmd, u16 handle)
+LMP_HCI_CODE int lmp_hci_test_key_cmd(u8 cmd, u16 handle)
 {
     return lmp_conn_for_handle(handle) ?
         lmp_hci_cmd_to_conn_for_handle(handle, 2, 0x0cfc, cmd) : 0;
 }
-int lmp_hci_send_user_info_cmd(u32 info, u16 handle)
+LMP_HCI_CODE int lmp_hci_send_user_info_cmd(u32 info, u16 handle)
 {
     return lmp_conn_for_handle(handle) ?
         lmp_hci_cmd_to_conn_for_handle(handle, 2, 0x0cfb, info) : 0;
 }
 
-void lmp_hci_read_remote_supported_features(u16 handle)
+LMP_HCI_CODE void lmp_hci_read_remote_supported_features(u16 handle)
 {
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
     if (!conn) { btctrler_assert_failed("remote features connection", handle); return; }
     hci_send_event(0x0b, "1Hc08", 0, handle, conn->core_s.remote_features);
 }
-void lmp_hci_read_remote_extended_features(u16 handle)
+LMP_HCI_CODE void lmp_hci_read_remote_extended_features(u16 handle)
 {
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
     if (!conn) { btctrler_assert_failed("remote extended features connection", handle); return; }
     hci_send_event(0x23, "1H11c08", 0, handle, 1, 1, conn->core_s.remote_ext_features);
 }
-void lmp_hci_read_clock_offset(u16 handle)
+LMP_HCI_CODE void lmp_hci_read_clock_offset(u16 handle)
 {
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
     if (!conn) return;
     if (!conn->core.role) lmp_tx_clkoffset_req(conn);
     else hci_send_event(0x1c, "122", 0, handle, bredr_link_clk_offset(conn->link));
 }
-int lmp_hci_read_remote_version_information(u16 handle)
+LMP_HCI_CODE int lmp_hci_read_remote_version_information(u16 handle)
 {
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
+#ifdef CONFIG_CPU_BD19
+    lmp_tx_version_req(conn);
+#else
     if (!conn) return 0x02; /* Fix: the SDK passed null to the LMP sender. */
     lmp_tx_version_req(conn);
+#endif
     return 0;
 }
-int lmp_hci_refresh_encryption_key(u16 handle)
+LMP_HCI_CODE int lmp_hci_refresh_encryption_key(u16 handle)
 {
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
+#ifndef CONFIG_CPU_BD19
     if (!conn) return 0x02;
+#endif
     lmp_tx_pause_encryption_req(conn);
     return 0;
 }
-void lmp_hci_role_discovery(u16 handle)
+LMP_HCI_CODE void lmp_hci_role_discovery(u16 handle)
 {
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
     hci_send_event_cmd_complete(0x0809, "1H1", conn ? 0 : 0x0c, handle, conn ? conn->core.role : 0);
 }
-void lmp_hci_read_link_policy_settings(u16 handle)
+LMP_HCI_CODE void lmp_hci_read_link_policy_settings(u16 handle)
 {
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
     hci_send_event_cmd_complete(0x080c, "1H1", conn ? 0 : 0x0c, handle, conn ? conn->core.link_policy : 0);
 }
-void lmp_hci_write_link_policy_settings(u16 handle, u16 policy)
+LMP_HCI_CODE void lmp_hci_write_link_policy_settings(u16 handle, u16 policy)
 {
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
     if (conn) conn->core.link_policy = policy;
     hci_send_event_cmd_complete(0x080d, "1H", conn ? 0 : 0x0c, handle);
 }
-u16 lmp_hci_read_default_link_policy_settings(void)
+LMP_HCI_CODE u16 lmp_hci_read_default_link_policy_settings(void)
 { return gbredr_local_dev.default_link_policy_settings; }
-void lmp_hci_write_default_link_policy_settings(u16 settings)
+LMP_HCI_CODE void lmp_hci_write_default_link_policy_settings(u16 settings)
 { gbredr_local_dev.default_link_policy_settings = settings; }
 
 #ifdef UNITTEST
@@ -127,8 +140,10 @@ int lmp_hci_disconnect_sync_connection(int handle, u8 reason)
 { CHECK(handle == 0x123 && reason == 0x16); sync_calls++; return 9; }
 void lmp_tx_clkoffset_req(struct lmp_connection *c) { CHECK(c == &conn); clk_requests++; }
 int bredr_link_clk_offset(struct link_connection *lc) { CHECK(lc == &link); return 0xface; }
-void lmp_tx_version_req(struct lmp_connection *c) { CHECK(c == &conn); version_requests++; }
-void lmp_tx_pause_encryption_req(struct lmp_connection *c) { CHECK(c == &conn); pause_requests++; }
+void lmp_tx_version_req(struct lmp_connection *c)
+{ CHECK(!c || c == &conn); version_requests++; }
+void lmp_tx_pause_encryption_req(struct lmp_connection *c)
+{ CHECK(!c || c == &conn); pause_requests++; }
 void btctrler_assert_failed(const char *what, int value)
 { CHECK(what && value == 0x123); asserts++; }
 int hci_send_event(int code, const char *fmt, ...)
@@ -188,8 +203,13 @@ int main(void)
         event = 0; old_asserts = asserts; lmp_hci_read_remote_extended_features(0x123);
         if (found) CHECK(event == 0x23 && !strcmp(format, "1H11c08") && features == conn.core_s.remote_ext_features && !values[0] && values[1] == 0x123 && values[2] == 1 && values[3] == 1);
         else CHECK(!event && asserts == old_asserts + 1);
+#ifdef CONFIG_CPU_BD19
+        CHECK(!lmp_hci_read_remote_version_information(0x123));
+        CHECK(!lmp_hci_refresh_encryption_key(0x123));
+#else
         CHECK(lmp_hci_read_remote_version_information(0x123) == (found ? 0 : 2));
         CHECK(lmp_hci_refresh_encryption_key(0x123) == (found ? 0 : 2));
+#endif
         for (int role = 0; role < 2; role++) {
             conn.core.role = role; event = 0; int old_clk = clk_requests;
             lmp_hci_read_clock_offset(0x123);
@@ -204,7 +224,11 @@ int main(void)
         lmp_hci_write_link_policy_settings(0x123, 0xabcd);
         CHECK(complete == 0x080d && !strcmp(format, "1H") && values[0] == (found ? 0 : 0x0c) && values[1] == 0x123 && conn.core.link_policy == (found ? 0xcd : 0xa5));
     }
+#ifdef CONFIG_CPU_BD19
+    CHECK(version_requests == 2 && pause_requests == 2);
+#else
     CHECK(version_requests == 1 && pause_requests == 1);
+#endif
     for (int i = 0; i < 65536; i++) {
         lmp_hci_write_default_link_policy_settings(i);
         CHECK(lmp_hci_read_default_link_policy_settings() == (u8)i);

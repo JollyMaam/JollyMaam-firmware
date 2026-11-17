@@ -325,6 +325,13 @@ AUTH_CODE void function_E3(u8 *K, u8 *RAND, u8 *COF, u8 Len, u8 *result)
     if (Len != 16) Entrypt_Key_Length_Change(result, Len);
 }
 
+#ifdef CONFIG_CPU_BD19
+/* The BD19 authentication member also contains the curve-specialization
+ * portion of micro-ecc.  Its arithmetic backend lives in crypto_toolbox ROM;
+ * these objects expose the five curve descriptors that backend consumes. */
+#include "btctrler/bd19/uECC_curves.inc"
+#endif
+
 #ifdef UNITTEST
 #include "test.h"
 
@@ -475,6 +482,25 @@ static void number(u8 *out, const char *s) { hex(out, s); endian_change(out, 16)
 
 int main(void)
 {
+#ifdef CONFIG_CPU_BD19
+    uECC_Curve secp160 = uECC_secp160r1();
+    uECC_Curve secp192 = uECC_secp192r1();
+    uECC_Curve secp224 = uECC_secp224r1();
+    uECC_Curve secp256 = uECC_secp256r1();
+    uECC_Curve secp256k1 = uECC_secp256k1();
+    CHECK(secp160 && secp160->num_words == 5 && secp160->num_bytes == 20 &&
+          secp160->num_n_bits == 161);
+    CHECK(secp192 && secp192->num_words == 6 && secp192->num_bytes == 24 &&
+          secp192->num_n_bits == 192);
+    CHECK(secp224 && secp224->num_words == 7 && secp224->num_bytes == 28 &&
+          secp224->num_n_bits == 224);
+    CHECK(secp256 && secp256->num_words == 8 && secp256->num_bytes == 32 &&
+          secp256->num_n_bits == 256);
+    CHECK(secp256k1 && secp256k1->num_words == 8 &&
+          secp256k1->num_bytes == 32 && secp256k1->num_n_bits == 256);
+    CHECK(secp256->double_jacobian && secp256->x_side && secp256->mmod_fast);
+#endif
+
     /* The SDK's tables are the specification's formulas. */
     for (unsigned x = 0; x < 256; x++) {
         CHECK(etable[x] == powmod(45, x, 257) % 256);

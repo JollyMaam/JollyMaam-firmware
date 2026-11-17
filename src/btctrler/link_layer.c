@@ -9,6 +9,16 @@
 #define LL_CODE __attribute__((section(".ble_ll_code")))
 #define LL_CONST __attribute__((section(".ble_ll_const")))
 
+/* BD19's SDK lowers memory operations to LLVM intrinsics.  BR23 keeps the
+ * original recovered libc calls so its production image stays unchanged. */
+#ifdef CONFIG_CPU_BD19
+#define LL_MEMCPY __builtin_memcpy
+#define LL_MEMSET __builtin_memset
+#else
+#define LL_MEMCPY memcpy
+#define LL_MEMSET memset
+#endif
+
 /* Raw IR signatures differ from the recovered header's bool/int types. */
 u8 __hci_emit_le_meta_event_ir(u8, const char *, ...) __asm__("__hci_emit_le_meta_event");
 u8 ll_control_procedure_is_exist_ir(struct le_link *, u32) __asm__("ll_control_procedure_is_exist");
@@ -607,10 +617,10 @@ void LL_CODE ll_send_control_data_state_machine(struct le_link *link, struct ble
         u32 ivm;
         u64 skdm;
         pseudo_random_genrate((u8 *)&ivm, 4);
-        memcpy(target->ivm, &ivm, 4);
+        LL_MEMCPY(target->ivm, &ivm, 4);
         pseudo_random_genrate((u8 *)&skdm, 8);
-        memcpy(target->skdm, &skdm, 8);
-        memcpy(target->long_term_key, le_param.start_encryption_param.long_term_key, 16);
+        LL_MEMCPY(target->skdm, &skdm, 8);
+        LL_MEMCPY(target->long_term_key, le_param.start_encryption_param.long_term_key, 16);
         ll_send_control_data_callback(target, __master_ll_send_enc_req_callback, 3,
                                       "c08c02c08c04",
                                       le_param.start_encryption_param.random_number,
@@ -720,7 +730,7 @@ void LL_CODE ll_send_control_data_state_machine(struct le_link *link, struct ble
         target->conn_param_req.PreferredPeriodicity = periodicity;
         u16 reference = (u16)(ll_vendor_instant_cnt + target->event_cnt);
         target->conn_param_req.ReferenceConnEventCount = reference;
-        memset(target->conn_param_req.offset, 0xff, 12);
+        LL_MEMSET(target->conn_param_req.offset, 0xff, 12);
         u16 offset0 = ll_vendor_offset0;
         target->conn_param_req.offset[0] = offset0;
         ll_send_control_data(target, 15, "222212222222", min, max, latency, timeout,
@@ -957,7 +967,7 @@ void LL_CODE ll_send_acl_packet(int handle, const u8 *packet,
 u8 LL_CODE device_addr_verify_ir(const u8 *addr, u8 start, u8 len)
 {
     u8 temp[6];
-    memcpy(temp, addr, 6);
+    LL_MEMCPY(temp, addr, 6);
     unsigned end = (unsigned)start + len;
     u8 all_ones = 255;
     for (u8 i = start; (unsigned)i < end; i++) {
@@ -1049,7 +1059,7 @@ u8 LL_CODE le_channel_map_update(const struct host_channel_classification *param
          node != &ll_hdl.le_links; node = node->next) {
         struct le_link *link = (struct le_link *)((u8 *)node - offsetof(struct le_link, entry));
         if (link->state == 7 && link->role != 1) {
-            memcpy(link->ll_data.channel, param->channel_map, 5);
+            LL_MEMCPY(link->ll_data.channel, param->channel_map, 5);
             ll_control_data_step_start(link, master_channel_map_request_steps);
             status = 0;
         }
@@ -1107,7 +1117,7 @@ u8 LL_CODE le_disconnect(const struct disconnect_paramter *param)
     u8 state = link->state;
     if ((state & 0xfe) == 6) {
         ll_response_timeout_start(link);
-        memcpy(&hci_param.disconn_param, param, 3);
+        LL_MEMCPY(&hci_param.disconn_param, param, 3);
         ll_control_data_step_start(link, disconnect_steps);
         return 0;
     }
@@ -1177,7 +1187,7 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
     switch (normalized) {
     case 19: { /* LL_CONNECTION_UPDATE */
         u16 handle;
-        memcpy(&handle, param, sizeof(handle));
+        LL_MEMCPY(&handle, param, sizeof(handle));
         struct le_link *link = ll_link_for_handle(handle);
         if (!link) {
             if (log_tag_const_e_LL)
@@ -1186,7 +1196,7 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
         }
         if ((link->state & 0xfe) != 6)
             return 12;
-        memcpy(&le_param.conn_update_param, param, 14);
+        LL_MEMCPY(&le_param.conn_update_param, param, 14);
         if (config_btctler_le_features & 2) {
             if (link->role == 1) {
                 if (ll_control_procedure_push_ir(link, 15))
@@ -1220,13 +1230,13 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
     case 20: /* LL_CHANNEL_MAP update */
         if ((config_btctler_le_roles & 1) == 0)
             return 1;
-        memcpy(ll_hdl.fixed_channel_map, param, 5);
+        LL_MEMCPY(ll_hdl.fixed_channel_map, param, 5);
         return le_channel_map_update((const struct host_channel_classification *)param);
     case 22:
         return le_features_exchange((const struct read_remote_used_features_paramter *)param);
     case 1053: { /* HCI read remote version */
         u16 handle;
-        memcpy(&handle, param, sizeof(handle));
+        LL_MEMCPY(&handle, param, sizeof(handle));
         struct le_link *link = ll_link_for_handle(handle);
         if (!link) {
             if (log_tag_const_e_LL)
@@ -1242,7 +1252,7 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
         if ((config_btctler_le_features & 1) == 0)
             return 1;
         u16 handle;
-        memcpy(&handle, param, sizeof(handle));
+        LL_MEMCPY(&handle, param, sizeof(handle));
         struct le_link *link = ll_link_for_handle(handle);
         if (!link) {
             if (log_tag_const_e_LL)
@@ -1254,7 +1264,7 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
             btctrler_assert_failed("!ROLE_IS_SLAVE(link) le_start_encrypt", 0);
         else if (!config_asser && slave)
             cpu_reset();
-        memcpy(&le_param.start_encryption_param, param, 28);
+        LL_MEMCPY(&le_param.start_encryption_param, param, 28);
         ll_response_timeout_start(link);
         ll_control_data_step_start(link, link->encrypt_enable ? restart_encryption_steps : start_encryption_steps);
         return 0;
@@ -1263,7 +1273,7 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
         if ((config_btctler_le_features & 1) == 0)
             return 1;
         u16 handle;
-        memcpy(&handle, param, sizeof(handle));
+        LL_MEMCPY(&handle, param, sizeof(handle));
         struct le_link *link = ll_link_for_handle(handle);
         if (!link) {
             if (log_tag_const_e_LL)
@@ -1275,7 +1285,7 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
             btctrler_assert_failed("ROLE_IS_SLAVE(link) le_start_encrypt_req", 0);
         else if (!config_asser && !slave)
             cpu_reset();
-        memcpy(&le_param.long_term_key_request_reply_param, param, 18);
+        LL_MEMCPY(&le_param.long_term_key_request_reply_param, param, 18);
         ll_control_data_step_start(link, link->encrypt_enable ?
                                    restart_encryption_req_steps : start_encryption_req_steps);
         return 0;
@@ -1284,7 +1294,7 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
         if ((config_btctler_le_features & 1) == 0)
             return 1;
         u16 handle;
-        memcpy(&handle, param, sizeof(handle));
+        LL_MEMCPY(&handle, param, sizeof(handle));
         struct le_link *link = ll_link_for_handle(handle);
         if (!link) {
             if (log_tag_const_e_LL)
@@ -1306,14 +1316,14 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
         if ((config_btctler_le_features & 2) == 0)
             return 1;
         u16 handle;
-        memcpy(&handle, param, sizeof(handle));
+        LL_MEMCPY(&handle, param, sizeof(handle));
         struct le_link *link = ll_link_for_handle(handle);
         if (!link) {
             if (log_tag_const_e_LL)
                 log_print(4, NULL, "<Error>: [LL]UNKNOWN_CONNECTION_IDENTIFIER\r\n");
             return 2;
         }
-        memcpy(&le_param.conn_update_param, param, 14);
+        LL_MEMCPY(&le_param.conn_update_param, param, 14);
         ll_control_data_step_start(link, link->role == 1 ?
                                    slave_connection_parameter_respond_steps : master_connection_update_steps);
         return 1;
@@ -1322,7 +1332,7 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
         if ((config_btctler_le_features & 2) == 0)
             return 1;
         u16 handle;
-        memcpy(&handle, param, sizeof(handle));
+        LL_MEMCPY(&handle, param, sizeof(handle));
         struct le_link *link = ll_link_for_handle(handle);
         if (!link) {
             if (log_tag_const_e_LL)
@@ -1336,12 +1346,12 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
         if ((config_btctler_le_features & 32) == 0)
             return 1;
         u16 handle;
-        memcpy(&handle, param, sizeof(handle));
+        LL_MEMCPY(&handle, param, sizeof(handle));
         struct le_link *link = ll_link_for_handle(handle);
         if (!link)
             return 2;
         if ((link->state & 0xfe) == 6) {
-            memcpy(&le_param.set_data_length_param, param, 6);
+            LL_MEMCPY(&le_param.set_data_length_param, param, 6);
             ll_control_data_step_start(link, data_length_update_steps);
         } else {
             ll_assert_or_reset("0 le_data_length_update", 0);
@@ -1353,7 +1363,7 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
             ll_assert_or_reset("param != NULL __ll_send_vendor_test_key_num", 0);
         bool log = log_tag_const_i_LL != 0;
         u16 handle;
-        memcpy(&handle, param, sizeof(handle));
+        LL_MEMCPY(&handle, param, sizeof(handle));
         if (log)
             log_print(2, NULL, "[Info]: [LL]ll_hdl:%x,key:%x\n\r\n", handle, param[2]);
         struct le_link *link = ll_link_for_handle(handle);
@@ -1366,8 +1376,8 @@ u8 LL_CODE ll_push_control_data(u16 opcode, const u8 *param)
     }
     case 132: {
         u16 handle, hold;
-        memcpy(&handle, param, sizeof(handle));
-        memcpy(&hold, param + 2, sizeof(hold));
+        LL_MEMCPY(&handle, param, sizeof(handle));
+        LL_MEMCPY(&hold, param + 2, sizeof(hold));
         if (log_tag_const_i_LL)
             log_print(2, NULL, "[Info]: [LL]ll_hold_latency_cnt:handle %x,hold %x\n\r\n",
                       handle, hold);
@@ -1476,15 +1486,15 @@ struct le_link *LL_CODE ll_create_conn_link(void *hw, struct le_addr *local_addr
     if (!link && log_tag_const_e_LL)
         log_print(4, NULL, "<Error>: [LL]conn link NULL\r\n");
     link->hw = hw;
-    memcpy(&link->local, &local_addr->addr_type, 7);
+    LL_MEMCPY(&link->local, &local_addr->addr_type, 7);
     link->peer.addr_type = peer_addr_type;
-    memcpy(link->peer.addr, peer_addr, 6);
+    LL_MEMCPY(link->peer.addr, peer_addr, 6);
     link->role = role;
     if (role == 1) {
-        memcpy(&link->ll_data, ll_data, 22);
+        LL_MEMCPY(&link->ll_data, ll_data, 22);
         ll_slave_cal_widening(&link->ll_data);
     } else {
-        memcpy(&link->ll_data, ll_data, 32);
+        LL_MEMCPY(&link->ll_data, ll_data, 32);
     }
     (__ble_ops->ioctrl)(hw, 6, &link->ll_data);
     ll_wifi_detect_init(link);
@@ -1581,7 +1591,7 @@ void LL_CODE ll_delete_link(struct le_link *link)
     link->fifo_rd = 0;
     link->fifo_wr = 0;
     /* The SDK clears five bytes here, not five complete FIFO entries. */
-    memset(link->procedure_fifo, 0, 5);
+    LL_MEMSET(link->procedure_fifo, 0, 5);
     ll_close_conn_link(link);
     os_mutex_post(&ll_hdl.link_lock);
 }
@@ -1726,7 +1736,7 @@ u8 LL_CODE ll_read_channel_map(u8 *channel_map, const u8 *data)
     struct le_link *link = ll_link_for_handle(handle & 4095);
     if (!link)
         return 2;
-    memcpy(channel_map, link->ll_data.channel, 5);
+    LL_MEMCPY(channel_map, link->ll_data.channel, 5);
     return 0;
 }
 
@@ -1737,15 +1747,17 @@ void LL_CODE ll_set_rf_debug(u16 debug_index)
 
 void LL_CODE ll_init(void)
 {
+#ifndef CONFIG_CPU_BD19
     if (power_is_poweroff_post()) {
         ll_hdl.pEVT = (struct lbuff_head *)lbuf_init_btctrler(ll_hdl.pEvent_buf, 512);
         thread_create(&ll_hdl.thread, "link_layer", ll_thread_process, &bt_task_thread);
         return;
     }
+#endif
     if (log_tag_const_i_LL)
         log_print(2, NULL, "[Info]: [LL]ll_init normal init\r\n");
     ll_hdl.pEvent_buf = pEvent_buf_static;
-    memcpy(ll_hdl.fixed_channel_map, init_fixed_channel, 5);
+    LL_MEMCPY(ll_hdl.fixed_channel_map, init_fixed_channel, 5);
     int mutex_result = os_mutex_create(&ll_hdl.link_lock);
     if (mutex_result && log_tag_const_e_LL)
         log_print(4, NULL, "<Error>: [LL]ll_init creat mutex err\r\n");
@@ -1760,7 +1772,7 @@ void LL_CODE ll_init(void)
         ll_assert_or_reset("__this->pEVT", 0);
     __ble_ops->init();
     thread_create(&ll_hdl.thread, "link_layer", ll_thread_process, &bt_task_thread);
-    memcpy(le_param.features, &config_btctler_le_features, 8);
+    LL_MEMCPY(le_param.features, &config_btctler_le_features, 8);
     le_param.compld = hci_param.manufacturer_name;
     le_param.versnr = hci_param.hci_version;
     le_param.acl_packets_total_num = (u8)config_btctler_le_acl_total_nums;
@@ -1769,8 +1781,10 @@ void LL_CODE ll_init(void)
 
 void LL_CODE ll_destroy(void)
 {
+#ifndef CONFIG_CPU_BD19
     if (power_is_poweroff_post())
         return;
+#endif
     ll_adv_close();
     ll_scan_destroy();
     ll_init_close();
@@ -1810,7 +1824,7 @@ void LL_CODE __set_ll_local_addr_common(struct le_addr *addr, u8 own_addr_type)
     switch (own_addr_type) {
     case 0:
     case 2:
-        memcpy(addr->addr, le_param.public_address, 6);
+        LL_MEMCPY(addr->addr, le_param.public_address, 6);
         if (log_tag_const_i_LL) {
             log_print(2, NULL, "[Info]: [LL]LE public addr :\r\n");
             printf_buf(addr->addr, 6);
@@ -1818,7 +1832,7 @@ void LL_CODE __set_ll_local_addr_common(struct le_addr *addr, u8 own_addr_type)
         break;
     case 1:
     case 3:
-        memcpy(addr->addr, le_param.random_address, 6);
+        LL_MEMCPY(addr->addr, le_param.random_address, 6);
         if (log_tag_const_i_LL) {
             log_print(2, NULL, "[Info]: [LL]LE random addr :\r\n");
             printf_buf(addr->addr, 6);
@@ -1892,17 +1906,17 @@ static void LL_CODE __attribute__((noinline)) __slave_ll_send_start_enc_req(void
             log_print(4, NULL, "<Error>: [LL]UNKNOWN_CONNECTION_IDENTIFIER\r\n");
         return;
     }
-    memcpy(iv, link->ivm, 4);
-    memcpy(iv + 4, link->ivs, 4);
+    LL_MEMCPY(iv, link->ivm, 4);
+    LL_MEMCPY(iv + 4, link->ivs, 4);
     bool log_info = log_tag_const_i_LL != 0;
     if (log_info) {
         log_print(2, NULL, "[Info]: [LL]IV :\r\n");
         printf_buf(iv, 8);
     }
     (__ble_ops->ioctrl)(link->hw, 0, iv);
-    memcpy(skd, link->skdm, 8);
-    memcpy(skd + 8, link->skds, 8);
-    memcpy(link->long_term_key,
+    LL_MEMCPY(skd, link->skdm, 8);
+    LL_MEMCPY(skd + 8, link->skds, 8);
+    LL_MEMCPY(link->long_term_key,
            le_param.long_term_key_request_reply_param.long_term_key, 16);
     aes128_start(link->long_term_key, skd, session_key);
     if (log_info) {
@@ -2447,7 +2461,7 @@ static const struct ble_operation test_ble_ops = {
 
 void pseudo_random_genrate(u8 *out, unsigned int size)
 {
-    memcpy(out, test_random_bytes, size);
+    LL_MEMCPY(out, test_random_bytes, size);
 }
 
 int main(void)
@@ -2629,7 +2643,7 @@ int main(void)
     CHECK(check_transitions_bits(transition_sample, 5) == 4);
     CHECK(check_transitions_bits(transition_sample, 1) == 0);
     const u8 fixed_map[] = {255, 255, 255, 255, 31};
-    memcpy(ll_hdl.fixed_channel_map, fixed_map, sizeof(fixed_map));
+    LL_MEMCPY(ll_hdl.fixed_channel_map, fixed_map, sizeof(fixed_map));
     CHECK(memcmp(ll_get_fixed_channel_map(), fixed_map, sizeof(fixed_map)) == 0);
 
     struct ble_conn_param param = {0};
@@ -2646,7 +2660,7 @@ int main(void)
     config_vendor_le_bb = 0;
 
     /* Raw IR masks the random word and substitutes table entry word>>27. */
-    memset(test_random_bytes, 0, sizeof(test_random_bytes));
+    LL_MEMSET(test_random_bytes, 0, sizeof(test_random_bytes));
     test_random_bytes[3] = 0xf0;
     CHECK(lctrComputeAccessAddr() == 0x8e040831);
     CHECK(lctrComputeSeedAccessAddr() == 0xf0bc8000);

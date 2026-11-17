@@ -317,6 +317,17 @@ int ll_init_close(void)
     return 0;
 }
 
+struct le_init_link *ll_init_link_get(void) LL_CODE;
+struct le_init_link *ll_init_link_get(void)
+{
+    if (init_hdl == NULL) {
+        if (log_tag_const_e_LL_INIT)
+            log_print(4, NULL, "<Error>: [LL_INIT]LL Init not init yet\r\n");
+        return NULL;
+    }
+    return init_hdl->init_link;
+}
+
 #ifdef UNITTEST
 #include "test.h"
 #include <stdarg.h>
@@ -453,6 +464,7 @@ int main(void)
     reset_trace();
     CHECK(ll_init_open(params) == 0);
     struct le_init_link *l = init_hdl->init_link;
+    CHECK(ll_init_link_get() == l);
     CHECK(l && l->hw == hw_token && registered == &init_handler && registered_priv == l);
     CHECK(ioctl_n == 3 && ioctl_cmd[0] == 12 && ioctl_a[0] == 1);
     CHECK(ioctl_cmd[1] == 9 && ioctl_a[1] == 1 && ioctl_p[1] == l->peer.addr);
@@ -659,6 +671,8 @@ int main(void)
     CHECK(!strcmp(trace, "connpost masterrx ") && post_link == &conn_link && master_link == &conn_link && master_rx == &r.rx);
     CHECK(close_calls == 0 && nfreed == 2 && freed[0] == linkp && init_hdl == NULL && conn_link.rssi == -40);
     CHECK(init_rx_post_handler() == 1);
+    int errors_before_get = errors;
+    CHECK(ll_init_link_get() == NULL && errors == errors_before_get + 1);
     CHECK(ll_init_open(params) == 0);
     init_hdl->init_link = NULL;
     CHECK(init_rx_post_handler() == 1);

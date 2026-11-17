@@ -38,6 +38,13 @@ Four imports required removing post-baseline BR23 source/test branches during
 the initial three-way transplant (`link_layer`, `ll_slave`, `lmp_hci_pairing`,
 `thread`). The final BD19 production IR still matches the previous recovery.
 
+Consolidated afterwards: the 46 `bd19/shared/` sources with a BR23 counterpart
+replaced it in `src/btctrler/`; the two without one moved to `bd19/`. Checked
+by unchanged BD19 objects (function bodies and globals) and a byte-identical
+BR23 firmware image (same-length BUILD_ID). In BR23 objects they add
+BD19-checked definitions the BR23 decompilation had left out (unlinked there),
+and rearrange a few bodies without changing behaviour.
+
 `migration-provenance.json` records source hashes and their original paths.
 The comparison checked 123 BR23 objects / 2109 function bodies against fresh
 objects built from `44d0073`, and 79 BD19 objects / 1198 bodies plus global
@@ -84,6 +91,6 @@ application build. No firmware flashing or hardware validation was performed.
 
 Continue the 37 retained BD19 members from this clean branch, one worker at a
 time when requested. Use the rebuilt reuse census before assigning a member.
-For consolidation, begin with an isolated `bd19/shared/` source whose original
-SDK bodies match, checking additional exports and original BR23 omissions.
+Further consolidation means the dedicated `bd19/` sources whose BR23
+counterparts are close (see the reuse census); keep the BR23 image unchanged.
 Track stricter SDK-purity changes separately from migration and source sharing.

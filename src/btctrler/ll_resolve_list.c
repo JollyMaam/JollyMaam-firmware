@@ -10,7 +10,8 @@
  * only when privacy is enabled; the random words are read from the hardware
  * RNG at 0x1e3b00 and 0x1e3b04, low byte only.  debug_ll_privacy and
  * ll_vendor_device_address_generate have no caller and are not carried
- * over, nor is the debug table rpa_set that only the first one reads. */
+ * over on BR23. BD19's whole-member ownership also retains the SDK's debug
+ * exports and initialized debug table. */
 #include "btctrler/glue.h"
 #include <string.h>
 
@@ -42,6 +43,24 @@ _Static_assert(sizeof(struct resolving_list) == 60, "SDK resolving list allocati
 
 static u8 ll_resolving_list_used __attribute__((section(".ble_ll_bss"))) = 0;
 struct ll_privacy le_privacy __attribute__((section(".ble_ll_bss")));
+
+#ifdef CONFIG_CPU_BD19
+struct rpa rpa_set[2] __attribute__((section(".ble_ll_data"), aligned(1))) = {
+    {
+        { 0x76, 0x41, 0x46, 0x31, 0x3a, 0x4d },
+        { 0x74, 0x01, 0x90, 0x4a, 0xf7, 0x35, 0xa4, 0x38,
+          0xd3, 0x20, 0x9a, 0xcd, 0x48, 0xc0, 0x54, 0x40 },
+        { 0xe6, 0xea, 0xee, 0x60, 0x31, 0x7b, 0xfc, 0xa2,
+          0x3f, 0xa5, 0x79, 0x59, 0xe7, 0x41, 0xcf, 0xc7 },
+    },
+    {
+        { 0xa9, 0x3e, 0xd4, 0x37, 0xb5, 0x75 },
+        { 0x74, 0x01, 0x90, 0x4a, 0xf7, 0x35, 0xa4, 0x38,
+          0xd3, 0x20, 0x9a, 0xcd, 0x48, 0xc0, 0x54, 0x40 },
+        { 0 },
+    },
+};
+#endif
 
 static struct resolving_list *entry_of(struct list_head *node)
 {
@@ -339,6 +358,98 @@ void ll_resolution_disable(void)
         ll_RPA_timeout_stop();
 }
 
+/* Present in the BD19 member even though the current BR23 source did not
+ * carry this vendor helper. Preserve its RNG reads for every type, including
+ * unknown types that leave the destination untouched. */
+#ifdef CONFIG_CPU_BD19
+void ll_vendor_device_address_generate(u8 *addr, u8 *irk, u8 type) LL_CODE;
+void ll_vendor_device_address_generate(u8 *addr, u8 *irk, u8 type)
+{
+    u8 random_addr[6];
+    for (int i = 0; i < 6; i += 2) {
+        random_addr[i] = (u8)RNG_WORD0;
+        random_addr[i + 1] = (u8)RNG_WORD1;
+    }
+    switch (type) {
+    case 1:
+        random_addr[5] |= 0xc0;
+        memcpy(addr, random_addr, 6);
+        break;
+    case 2:
+        random_addr[5] &= 0x3f;
+        memcpy(addr, random_addr, 6);
+        break;
+    case 3: {
+        random_addr[2] = (random_addr[2] & 0x3f) | 0x40;
+        u8 input[16] = { 0 };
+        u8 encrypted[16];
+        memcpy(input, random_addr, 3);
+        aes128_start(irk, input, encrypted);
+        memcpy(addr, encrypted, 3);
+        memcpy(addr + 3, random_addr, 3);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void debug_ll_privacy(void) LL_CODE;
+void debug_ll_privacy(void)
+{
+    u8 input[16] = { 0 }, encrypted[16], hash[3], generated[6];
+    const u8 *peer_prand = rpa_set[0].addr + 3;
+    bool verbose = log_tag_const_i_LL_RL != 0;
+
+    if (verbose) {
+        log_print(2, NULL, "[Info]: [LL_RL]---------------LL privacy debug---------\r\n");
+        log_print(2, NULL, "[Info]: [LL_RL]RPA : %s\r\n", btctler_bd_addr_to_str(rpa_set[0].addr));
+        log_print(2, NULL, "[Info]: [LL_RL]peer IRK : \r\n");
+        printf_buf(rpa_set[0].peer_irk, 16);
+    }
+    if (ll_resolvable_private_addr_verify(rpa_set[0].addr)) {
+        if (verbose) {
+            log_print(2, NULL, "[Info]: [LL_RL]prand \r\n");
+            printf_buf(peer_prand, 3);
+        }
+        memcpy(input, peer_prand, 3);
+        aes128_start(rpa_set[0].peer_irk, input, encrypted);
+        memcpy(hash, encrypted, 3);
+        if (verbose) {
+            log_print(2, NULL, "[Info]: [LL_RL]hash \r\n");
+            printf_buf(hash, 3);
+        }
+        if (memcmp(hash, rpa_set[0].addr, 3) == 0 && verbose)
+            log_print(2, NULL, "[Info]: [LL_RL]ll peer private addr resolved!\r\n");
+    } else if (verbose) {
+        log_print(2, NULL, "[Info]: [LL_RL]ll resolve addr format error\r\n");
+    }
+
+    le_privacy.random48[2] = (le_privacy.random48[2] & 63) | 64;
+    memcpy(input, le_privacy.random48, 3);
+    aes128_start(rpa_set[0].local_irk, input, encrypted);
+    memcpy(generated, encrypted, 3);
+    memcpy(generated + 3, le_privacy.random48, 3);
+    if (verbose) {
+        log_print(2, NULL, "[Info]: [LL_RL]RPA : %s\r\n", btctler_bd_addr_to_str(generated));
+        log_print(2, NULL, "[Info]: [LL_RL]local IRK : \r\n");
+        printf_buf(rpa_set[0].local_irk, 16);
+        log_print(2, NULL, "[Info]: [LL_RL]prand \r\n");
+        printf_buf(generated + 3, 3);
+        memset(input, 0, sizeof(input));
+        memcpy(input, generated + 3, 3);
+        aes128_start(rpa_set[0].local_irk, input, encrypted);
+        memcpy(hash, encrypted, 3);
+        log_print(2, NULL, "[Info]: [LL_RL]hash \r\n");
+        printf_buf(hash, 3);
+        if (memcmp(hash, generated, 3) == 0)
+            log_print(2, NULL, "[Info]: [LL_RL]ll local private addr resolved!\r\n");
+    }
+    if (verbose)
+        log_print(2, NULL, "[Info]: [LL_RL]---------------LL privacy debug end---------\r\n");
+}
+#endif
+
 #ifdef UNITTEST
 #include "test.h"
 #include <stdlib.h>
@@ -463,6 +574,40 @@ static void make_data(u8 data[39], u8 type, u8 a, const u8 *peer_irk, const u8 *
 int main(void)
 {
     sbox_init();
+#ifdef CONFIG_CPU_BD19
+    /* Original BD19 member initializer is a 2x38-byte .ble_ll_data table. */
+    {
+        static const u8 expected_addr[6] = { 0x76, 0x41, 0x46, 0x31, 0x3a, 0x4d };
+        static const u8 expected_peer_irk[16] = {
+            0x74, 0x01, 0x90, 0x4a, 0xf7, 0x35, 0xa4, 0x38,
+            0xd3, 0x20, 0x9a, 0xcd, 0x48, 0xc0, 0x54, 0x40,
+        };
+        static const u8 expected_local_irk[16] = {
+            0xe6, 0xea, 0xee, 0x60, 0x31, 0x7b, 0xfc, 0xa2,
+            0x3f, 0xa5, 0x79, 0x59, 0xe7, 0x41, 0xcf, 0xc7,
+        };
+        CHECK(sizeof(rpa_set) == 76);
+        CHECK(memcmp(rpa_set[0].addr, expected_addr, 6) == 0);
+        CHECK(memcmp(rpa_set[0].peer_irk, expected_peer_irk, 16) == 0);
+        CHECK(memcmp(rpa_set[0].local_irk, expected_local_irk, 16) == 0);
+    }
+    /* BD19 vendor address helper: RNG byte order and type-specific edits. */
+    {
+        u8 out[6], before[6] = { 9, 8, 7, 6, 5, 4 };
+        ll_resolve_list_rng[0] = 0x11223344;
+        ll_resolve_list_rng[1] = 0x55667788;
+        memset(out, 0, sizeof(out));
+        ll_vendor_device_address_generate(out, (u8 *)spec_k_le, 1);
+        CHECK(memcmp(out, (u8[]){ 0x44, 0x88, 0x44, 0x88, 0x44, 0xc8 }, 6) == 0);
+        ll_vendor_device_address_generate(out, (u8 *)spec_k_le, 2);
+        CHECK(memcmp(out, (u8[]){ 0x44, 0x88, 0x44, 0x88, 0x44, 0x08 }, 6) == 0);
+        ll_vendor_device_address_generate(out, (u8 *)spec_k_le, 3);
+        CHECK(memcmp(out + 3, (u8[]){ 0x44, 0x88, 0x44 }, 3) == 0);
+        CHECK((out[5] & 0xc0) == 0x40);
+        ll_vendor_device_address_generate(before, (u8 *)spec_k_le, 0);
+        CHECK(memcmp(before, (u8[]){ 9, 8, 7, 6, 5, 4 }, 6) == 0);
+    }
+#endif
     /* FIPS-197 C.1 checks the AES model itself. */
     {
         u8 k[16], p[16], o[16];

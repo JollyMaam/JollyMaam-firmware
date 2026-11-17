@@ -319,6 +319,7 @@ u8 ll_set_phy(u16 connection_handle)
 #include "test.h"
 u64 config_btctler_le_features;
 struct ext_le_parameter ext_le_param;
+u8 log_tag_const_i_LL_PHY, log_tag_const_e_LL_PHY;
 int main(void)
 {
     config_btctler_le_features = 0;
@@ -344,6 +345,32 @@ int main(void)
     config_btctler_le_features = 0;
     ll_set_default_prefers_phys();
     CHECK(ext_le_param.default_prefers_phys.tx_phys == 7);
+
+    /* SDK-derived PHY negotiation: directions intersect opposite peer
+     * preferences, then select the lowest numbered common PHY. */
+    struct le_link link = {0};
+    u8 peer[2] = {3, 2};
+    config_btctler_le_features = 2304;
+    ext_le_param.phy_update_param.prefers_tx_phys = 3;
+    ext_le_param.phy_update_param.prefers_rx_phys = 1;
+    link.phy_param.M_TO_S_PHY = 0;
+    link.phy_param.S_TO_M_PHY = 0;
+    master_ll_receive_phy_rsp(&link, peer);
+    CHECK(link.phy_param.M_TO_S_PHY == 2 && link.phy_param.S_TO_M_PHY == 1);
+    /* A response selecting the current PHY is represented by no change. */
+    link.phy_param.M_TO_S_PHY = 2;
+    link.phy_param.S_TO_M_PHY = 1;
+    master_ll_receive_phy_rsp(&link, peer);
+    CHECK(link.phy_param.M_TO_S_PHY == 0 && link.phy_param.S_TO_M_PHY == 0);
+    /* Equal peer masks with exactly one bit are ignored when local TX/RX
+     * preferences differ, matching the SDK's special case. */
+    peer[0] = peer[1] = 2;
+    ext_le_param.phy_update_param.prefers_tx_phys = 3;
+    ext_le_param.phy_update_param.prefers_rx_phys = 1;
+    link.phy_param.M_TO_S_PHY = 0;
+    link.phy_param.S_TO_M_PHY = 0;
+    master_ll_receive_phy_rsp(&link, peer);
+    CHECK(link.phy_param.M_TO_S_PHY == 0 && link.phy_param.S_TO_M_PHY == 0);
     return TEST_DONE("btctrler_ll_multiple_phys");
 }
 #endif

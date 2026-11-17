@@ -8,6 +8,7 @@
  * as one 8-byte store; a failed radio open frees the link without unlinking
  * it (it was never linked); the assertion text is the SDK's expression. */
 #include "btctrler/glue.h"
+#include <stdio.h>
 #include <string.h>
 
 extern BTCTRLER_CONFIG u8 log_tag_const_e_LL_PADV, log_tag_const_i_LL_PADV;
@@ -169,6 +170,19 @@ void ll_periodic_sync_open(struct le_ext_scan_link *link, struct __SyncInfo_fiel
 /* LE Periodic Advertising Create Sync: adopt the stored parameters and arm
  * the sync timeout timer. */
 void ll_periodic_advertising_create_sync(void) LL_CODE;
+#ifdef CONFIG_CPU_BD19
+static void periodic_sync_assert_failed(int asser) LL_CODE;
+static void periodic_sync_assert_failed(int asser)
+{
+    if (asser) {
+        printf("file:%s, line:%d", "/jks/workspace/data_trans_sdk_export_gitlab/data_trans_sdk/lib/btctrler/BLE/ll_periodic_advertising.c", 73);
+        printf("ASSERT-FAILD: link->period_sync->sync_timeout ");
+        cpu_assert_debug();
+    } else {
+        p33_soft_reset();
+    }
+}
+#endif
 void ll_periodic_advertising_create_sync(void)
 {
     struct le_ext_scan_link *link = ext_ll_hdl.ext_scan_link;
@@ -176,13 +190,32 @@ void ll_periodic_advertising_create_sync(void)
     link->period_sync = ext_le_param.ext_scan->period_sync;
     /* ll_periodic_sync_timeout_start */
     u16 timeout = btctler_little_endian_read_16(link->period_sync->sync_param.Sync_Timeout, 0);
-    link->period_sync->sync_timeout =
-        sys_timer_register((timeout > 10 ? timeout : 10) * 10, ll_periodic_sync_timer_handler);
-    if (log_tag_const_i_LL_PADV)
+    u32 timer_id;
+#ifdef CONFIG_CPU_BD19
+    u16 timeout_ms = (u16)((timeout > 10 ? timeout : 10) * 10u);
+    timer_id = sys_timer_register(timeout_ms, ll_periodic_sync_timer_handler);
+#else
+    timer_id = sys_timer_register((timeout > 10 ? timeout : 10) * 10,
+                                 ll_periodic_sync_timer_handler);
+#endif
+    link->period_sync->sync_timeout = timer_id;
+    int log_timeout = log_tag_const_i_LL_PADV;
+    if (log_timeout)
         log_print(2, NULL, "[Info]: [LL_PADV]link->period_sync->sync_timeout=0x%x\r\n",
-                  link->period_sync->sync_timeout);
+                  timer_id);
+#ifdef CONFIG_CPU_BD19
+    /* The SDK checks the returned id unless logging ran; logging can call out,
+     * so in that case it reloads the field.  Its ASSERT also snapshots the
+     * configuration after that callout. */
+    u32 checked_id = log_timeout ? (u32)link->period_sync->sync_timeout : timer_id;
+    int asser = config_asser;
+    if (checked_id == 0) {
+        periodic_sync_assert_failed(asser);
+    }
+#else
     if (!link->period_sync->sync_timeout)
         btctrler_assert_failed("link->period_sync->sync_timeout", 0);
+#endif
     sys_timer_set_context(link->period_sync->sync_timeout, link);
 }
 
@@ -300,7 +333,7 @@ struct ext_le_parameter ext_le_param;
 const struct ble5_operation *__ble5_ops;
 
 static struct { const char *format; int arg; } logs[16];
-static int nlogs, asserts, assert_value, resumes, frees, closes, ext_adv_closed;
+static int nlogs, asserts, assert_value, cpu_asserts, soft_resets, resumes, frees, closes, ext_adv_closed;
 static int timer_registered, timer_msec, timer_context_set, timer_removed, timer_reset;
 static void *timer_ctx;
 static void (*timer_cb)(void *);
@@ -339,6 +372,8 @@ static int logged(const char *text, int arg)
     return 0;
 }
 void btctrler_assert_failed(const char *what, int value) { CHECK(strstr(what, "sync_timeout")); assert_value = value; asserts++; }
+void cpu_assert_debug(void) { cpu_asserts++; }
+void p33_soft_reset(void) { soft_resets++; }
 void ll_thread_resume(void) { resumes++; }
 sys_timer sys_timer_register(u32 msec, void (*cb)(void *)) { timer_registered++; timer_msec = msec; timer_cb = cb; return timer_result; }
 void sys_timer_remove(sys_timer t) { CHECK(t == 77); timer_removed++; }
@@ -408,12 +443,13 @@ static struct le_ext_scan_link scan_link;
 
 static void reset(void)
 {
-    nlogs = asserts = resumes = frees = closes = ext_adv_closed = 0;
+    nlogs = asserts = cpu_asserts = soft_resets = resumes = frees = closes = ext_adv_closed = 0;
     timer_registered = timer_context_set = timer_removed = timer_reset = 0;
     new_link_calls = new_link_fail = open_fail = ioctl_calls = adv_ctrl_calls = 0;
     lost_calls = established_calls = report_calls = aux_calls = pdu_calls = cb_calls = 0;
     log_tag_const_i_LL_PADV = log_tag_const_e_LL_PADV = 0;
     config_vendor_le_bb = 0;
+    config_asser = 1;
     timer_result = 77;
     aux_offset = 3;
     memset(&sync_block, 0, sizeof sync_block);
@@ -445,6 +481,12 @@ int main(void)
     sync_block.sync_param.Sync_Timeout[0] = 11;
     ll_periodic_advertising_create_sync();
     CHECK(timer_msec == 110);
+#ifdef CONFIG_CPU_BD19
+    /* The SDK multiplies in i16 before zero extending the timer period. */
+    sync_block.sync_param.Sync_Timeout[0] = 0x9a; sync_block.sync_param.Sync_Timeout[1] = 0x19; /* 6554 */
+    ll_periodic_advertising_create_sync();
+    CHECK(timer_msec == 4);
+#endif
     /* Logging reads the timeout fresh. */
     log_tag_const_i_LL_PADV = 1;
     ll_periodic_advertising_create_sync();
@@ -453,7 +495,16 @@ int main(void)
     reset();
     timer_result = 0;
     ll_periodic_advertising_create_sync();
+#ifdef CONFIG_CPU_BD19
+    CHECK(asserts == 0 && cpu_asserts == 1 && soft_resets == 0 && timer_context_set == 1);
+    reset();
+    timer_result = 0;
+    config_asser = 0;
+    ll_periodic_advertising_create_sync();
+    CHECK(asserts == 0 && cpu_asserts == 0 && soft_resets == 1 && timer_context_set == 1);
+#else
     CHECK(asserts == 1 && assert_value == 0 && timer_context_set == 1);
+#endif
     /* No scan link: nothing happens. */
     reset();
     ext_ll_hdl.ext_scan_link = NULL;

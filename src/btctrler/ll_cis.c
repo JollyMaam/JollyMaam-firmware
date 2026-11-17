@@ -1,8 +1,5 @@
-/* LE Connected Isochronous Stream (CIG/CIS) bookkeeping: group and stream
- * objects on the shared ll_iso_hdl lists, handle allocation, lookups by handle
- * and by id, group teardown, and the sub-event duration arithmetic.  The
- * member's establish, test-mode, init/close and message functions are
- * unreferenced in this firmware and are dropped.  SDK quirks kept:
+/* LE Connected Isochronous Stream (CIG/CIS) bookkeeping and lifecycle.  SDK
+ * quirks kept:
  * ll_cig_free returns at once when the group's CIS list is empty (it only
  * frees a group that still has streams), so ll_cis_destory never frees the
  * group of its last stream; ll_cis_by_id searches the shared stream list by
@@ -11,8 +8,9 @@
  * interleaved duration dereferences the result of ll_cis_by_id unchecked. */
 #include "btctrler/glue.h"
 
-extern BTCTRLER_CONFIG u8 log_tag_const_e_LL_CIS, log_tag_const_i_LL_CIS;
+extern BTCTRLER_CONFIG u8 log_tag_const_d_LL_CIS, log_tag_const_e_LL_CIS, log_tag_const_i_LL_CIS;
 extern void log_print(int level, const char *tag, const char *format, ...);
+extern int printf(const char *format, ...);
 #include <string.h>
 #ifdef UNITTEST
 #include <stdlib.h>
@@ -26,6 +24,17 @@ extern void free(void *ptr);
 #endif
 
 #define LL_CODE __attribute__((section(".ble_ll_code")))
+#ifdef CONFIG_CPU_BD19
+#define CIS_MEMSET __builtin_memset
+/* The SDK event emitter returns a byte; the recovered header says bool. */
+extern u8 cis_emit_meta_event(u8, const char *, ...) __asm__("__hci_emit_le_meta_event");
+#define CIS_EMIT_META_EVENT cis_emit_meta_event
+#else
+#define CIS_MEMSET memset
+#define CIS_EMIT_META_EVENT __hci_emit_le_meta_event
+#endif
+/* Message handles are aligned to two bytes and may alias packet storage. */
+struct cis_message { u16 handle; u8 status; } __attribute__((may_alias));
 
 #ifndef UNITTEST
 _Static_assert(sizeof(le_cis_t) == 356, "SDK CIS allocation size");
@@ -109,7 +118,7 @@ le_cig_t *ll_cig_alloc(u8 id)
 {
     le_cig_t *cig = malloc(56);
     if (!cig) return NULL;
-    memset(cig, 0, 56);
+    CIS_MEMSET(cig, 0, 56);
     cig->cigId = id;
     INIT_LIST_HEAD(&cig->cis_head);
     list_add_tail(&cig->entry, &ll_iso_hdl.cig_head);
@@ -204,7 +213,7 @@ le_cis_t *ll_cis_alloc(le_cig_t *cig)
             log_print(4, NULL, "<Error>: [LL_CIS]CIS No memory\r\n");
         return NULL;
     }
-    memset(cis, 0, 356);
+    CIS_MEMSET(cis, 0, 356);
     uint16_t handle = ll_cis_handle_alloc();
     cis->cisHandle = handle;
     if (log_tag_const_i_LL_CIS)
@@ -319,6 +328,185 @@ uint32_t ll_cis_calc_subevt_interleaved_us(LlCisCigParams_t *pSetCigParam)
     return duration;
 }
 
+void ll_cig_remove_cis(le_cig_t *cig, le_cis_t *cis) LL_CODE;
+void ll_cig_remove_cis(le_cig_t *cig, le_cis_t *cis)
+{
+    if (list_empty(&cig->cis_head)) return;
+    cig->cis_number = (u8)(cig->cis_number - 1);
+    list_del(&cis->entry);
+}
+
+le_cis_t *ll_cig_get_head_cis(le_cig_t *cig) LL_CODE;
+le_cis_t *ll_cig_get_head_cis(le_cig_t *cig)
+{
+    if (list_empty(&cig->cis_head)) return NULL;
+    return (le_cis_t *)cig->cis_head.next;
+}
+
+static inline void cpu_reset(void)
+{
+    p33_soft_reset();
+}
+
+void ll_cis_established(le_cis_t *cis) LL_CODE;
+void ll_cis_established(le_cis_t *cis)
+{
+    le_cig_t *cig = cis->cig;
+    if (!cig) {
+        if (config_asser) {
+            printf("file:%s, line:%d", "/jks/workspace/data_trans_sdk_export_gitlab/data_trans_sdk/lib/btctrler/BLE/ll_cis.c", 361);
+            printf("ASSERT-FAILD: cig ");
+            cpu_assert_debug();
+        } else {
+            cpu_reset();
+        }
+    }
+    (void)ll_link_for_handle(cis->aclHandle);
+    cig->numCisEsted = (u8)(cig->numCisEsted + 1);
+    if (log_tag_const_i_LL_CIS)
+        log_print(2, NULL, "[Info]: [LL_CIS]established : cig->numCisEsted=%u\r\n", (int)cig->numCisEsted);
+}
+
+void ll_cis_established_fail(le_cis_t *cis) LL_CODE;
+void ll_cis_established_fail(le_cis_t *cis)
+{
+    ll_cis_destory(cis);
+}
+
+uint8_t ll_get_number_enable_cis_test(LlCisCigParamsTest_t *param) LL_CODE;
+uint8_t ll_get_number_enable_cis_test(LlCisCigParamsTest_t *param)
+{
+    u8 count = 0;
+    for (u32 i = 0; i < param->numCis; i++)
+        count = (u8)(count + (ll_cis_by_id(param->cigId, param->pCisParam[i].cisId) != NULL));
+    return count;
+}
+
+void ll_setup_channel_param(le_cis_t *cis, uint64_t chanMask) LL_CODE;
+void ll_setup_channel_param(le_cis_t *cis, uint64_t chanMask)
+{
+    (void)cis;
+    (void)chanMask;
+}
+
+uint8_t ll_cis_tx_test(le_cis_t *cis, u8 payload_type) LL_CODE;
+uint8_t ll_cis_tx_test(le_cis_t *cis, u8 payload_type)
+{
+    if ((!cis->bnMToS && cis->role == 0) || (!cis->bnSToM && cis->role == 1)) {
+        if (log_tag_const_d_LL_CIS)
+            log_print(1, NULL, "[Debug]: [LL_CIS]Transmit burst number must be greater than 0\r\n");
+        return 17;
+    }
+    if (payload_type > 2) {
+        if (log_tag_const_d_LL_CIS)
+            log_print(1, NULL, "[Debug]: [LL_CIS]Unknown payload type=%u\r\n", (int)payload_type);
+        return 18;
+    }
+    return 0;
+}
+
+uint8_t ll_cis_rx_test(le_cis_t *cis, u8 payload_type) LL_CODE;
+uint8_t ll_cis_rx_test(le_cis_t *cis, u8 payload_type)
+{
+    cis->rxPendInit = (payload_type != 0);
+    cis->rxTestEnabled = 1;
+    cis->numRxSuccess = 0;
+    cis->numRxMissed = 0;
+    cis->numRxFailed = 0;
+    cis->isoRxPldType = payload_type;
+    return 0;
+}
+
+uint8_t ll_cis_read_test_counters(le_cis_t *cis, LlIsoTestCtrs_t *counters) LL_CODE;
+uint8_t ll_cis_read_test_counters(le_cis_t *cis, LlIsoTestCtrs_t *counters)
+{
+    if (!cis->rxTestEnabled) {
+        if (!cis->txTestEnabled) {
+            if (log_tag_const_d_LL_CIS)
+                log_print(1, NULL, "[Debug]: [LL_CIS]Invalid ISO Test state, test mode must be enabled\r\n");
+            return 12;
+        }
+        counters->numSuccess = 0;
+        counters->numMissed = 0;
+        counters->numFailed = 0;
+    } else {
+        counters->numSuccess = cis->numRxSuccess;
+        counters->numMissed = cis->numRxMissed;
+        counters->numFailed = cis->numRxFailed;
+    }
+    return 0;
+}
+
+static void hci_le_cis_established_event(le_cis_t *cis, u8 status) LL_CODE;
+static void hci_le_cis_established_event(le_cis_t *cis, u8 status)
+{
+    CIS_EMIT_META_EVENT(25, "1H33331111111222", status, cis->cisHandle,
+                             cis->cigSyncDelayUsec, cis->cisSyncDelayUsec,
+                             cis->transLatUsec, cis->transLatUsec, cis->phyMToS, cis->phySToM,
+                             cis->nse, cis->bnMToS, cis->bnMToS, cis->ftMToS, cis->ftSToM,
+                             cis->pduSizeMToS, cis->pduSizeSToM, cis->isoInterval);
+}
+
+static void ll_cis_msg_handler(u8 type, void *message) LL_CODE;
+static void ll_cis_msg_handler(u8 type, void *message)
+{
+    const struct cis_message *data = message;
+    switch (type) {
+    case 0: {
+        if (log_tag_const_i_LL_CIS)
+            log_print(2, NULL, "[Info]: [LL_CIS]-> LL_CIS_MSG_CREATE_CIS_FAIL 0x%x\r\n", (int)data->status);
+        le_cis_t *cis = ll_cis_by_handle(data->handle);
+        hci_le_cis_established_event(cis, data->status);
+        ll_cis_destory(cis);
+        break;
+    }
+    case 1: {
+        if (log_tag_const_i_LL_CIS)
+            log_print(2, NULL, "[Info]: [LL_CIS]-> LL_CIS_MSG_CREATE_CIS_SUCCESS\r\n");
+        le_cis_t *cis = ll_cis_by_handle(data->handle);
+        hci_le_cis_established_event(cis, 0);
+        ll_cis_established(cis);
+        break;
+    }
+    case 2:
+        if (log_tag_const_i_LL_CIS)
+            log_print(2, NULL, "[Info]: [LL_CIS]-> LL_CIS_MSG_MIC_FAILED\r\n");
+        (void)ll_cis_by_handle(data->handle);
+        break;
+    }
+}
+
+void ll_cis_init(void) LL_CODE;
+void ll_cis_init(void)
+{
+    INIT_LIST_HEAD(&ll_iso_hdl.cig_head);
+    ll_iso_hdl.cig_number = 0;
+    ll_iso_hdl.max_cig_number = 2;
+    INIT_LIST_HEAD(&ll_iso_hdl.cis_head);
+    ll_iso_hdl.cis_number = 0;
+    ll_iso_hdl.max_cis_number = 6;
+    ll_cis_master_init();
+    ll_cis_slave_init();
+    ll_dispatch_msg_table[12] = ll_cis_msg_handler;
+}
+
+void ll_cis_close(void) LL_CODE;
+void ll_cis_close(void)
+{
+    struct list_head *node = ll_iso_hdl.cis_head.next;
+    while (node != &ll_iso_hdl.cis_head) {
+        struct list_head *next = node->next;
+        ll_cis_free((le_cis_t *)node);
+        node = next;
+    }
+    node = ll_iso_hdl.cig_head.next;
+    while (node != &ll_iso_hdl.cig_head) {
+        struct list_head *next = node->next;
+        ll_cig_free((le_cig_t *)node);
+        node = next;
+    }
+}
+
 #ifdef UNITTEST
 #include "test.h"
 #include <stdarg.h>
@@ -326,14 +514,58 @@ uint32_t ll_cis_calc_subevt_interleaved_us(LlCisCigParams_t *pSetCigParam)
 #undef free
 
 ll_iso_handle_t ll_iso_hdl;
-u8 log_tag_const_e_LL_CIS, log_tag_const_i_LL_CIS;
+u8 log_tag_const_d_LL_CIS, log_tag_const_e_LL_CIS, log_tag_const_i_LL_CIS;
 
 static int logs_e, logs_i, assert_count, malloc_fail, nfreed;
 static u32 malloc_sizes[32];
 static int nmalloc;
+int config_asser;
+ll_dispatch_msg_t ll_dispatch_msg_table[15];
+static int master_calls, slave_calls, handle_calls, events;
+static u32 event_words[16];
+static u8 *mutable_message;
+static le_cig_t *mutable_group;
+static void noop_message(u8 type, void *message) { (void)type; (void)message; }
+void p33_soft_reset(void) { CHECK(0); }
+void cpu_assert_debug(void) { CHECK(0); }
+void ll_cis_master_init(void)
+{
+    CHECK(ll_iso_hdl.cig_head.next == &ll_iso_hdl.cig_head && ll_iso_hdl.cig_head.prev == &ll_iso_hdl.cig_head);
+    CHECK(ll_iso_hdl.cis_head.next == &ll_iso_hdl.cis_head && ll_iso_hdl.cis_head.prev == &ll_iso_hdl.cis_head);
+    CHECK(!ll_iso_hdl.cig_number && ll_iso_hdl.max_cig_number == 2);
+    CHECK(!ll_iso_hdl.cis_number && ll_iso_hdl.max_cis_number == 6 && ll_iso_hdl.cis_bitmap == 0xa5);
+    CHECK(ll_dispatch_msg_table[12] == noop_message); ++master_calls;
+}
+void ll_cis_slave_init(void)
+{ CHECK(master_calls == 1 && ll_dispatch_msg_table[12] == noop_message); ++slave_calls; }
+struct le_link *ll_link_for_handle(int handle)
+{
+    CHECK(handle == 0x1234); ++handle_calls;
+    if (mutable_group) mutable_group->numCisEsted = 255;
+    return NULL; /* SDK establishment ignores the result. */
+}
+#ifdef CONFIG_CPU_BD19
+u8 cis_emit_meta_event(u8 subevent, const char *format, ...)
+#else
+bool __hci_emit_le_meta_event(u8 subevent, const char *format, ...)
+#endif
+{
+    CHECK(subevent == 25 && !strcmp(format, "1H33331111111222"));
+    va_list ap; va_start(ap, format);
+    for (unsigned i = 0; i < 16; ++i) event_words[i] = va_arg(ap, unsigned);
+    va_end(ap); ++events; return 0;
+}
 static void *freed[32];
 
-void log_print(int level, const char *tag, const char *format, ...) { (void)tag; (void)format; if (level == 4) logs_e++; else logs_i++; }
+void log_print(int level, const char *tag, const char *format, ...)
+{
+    (void)tag; if (level == 4) logs_e++; else logs_i++;
+    if (mutable_message) {
+        if (strstr(format, "MSG_CREATE_CIS_FAIL")) {
+            mutable_message[0] = 0x61; mutable_message[1] = 0; mutable_message[2] = 0x55;
+        } else if (strstr(format, "by handle")) mutable_message[2] = 0xa7;
+    }
+}
 void btctrler_assert_failed(const char *what, int value) { (void)what; CHECK(value == 0); assert_count++; }
 void *ll_cis_test_malloc(u32 size)
 {
@@ -417,6 +649,11 @@ int main(void)
     cig1->cis_number = 2;
     CHECK(ll_cis_by_handle(97) == b && ll_cis_by_handle(98) == c && ll_cis_by_handle(96) == a && ll_cis_by_handle(1) == NULL);
     CHECK(ll_cis_by_id(1, 2) == b && ll_cis_by_id(2, 1) == c && ll_cis_by_id(1, 1) == a && ll_cis_by_id(2, 2) == NULL && ll_cis_by_id(9, 1) == NULL);
+    CHECK(ll_cig_get_head_cis(cig1) == a);
+    ll_cig_remove_cis(cig1, b);
+    CHECK(cig1->cis_number == 1 && a->entry.next == &cig1->cis_head);
+    ll_cig_add_cis_tail(cig1, b);
+    CHECK(cig1->cis_number == 2 && ll_cig_get_head_cis(cig1) == a);
 
     /* Established state and counts. */
     a->state = 1; b->state = 2;
@@ -427,6 +664,32 @@ int main(void)
     CHECK(ll_get_number_enable_cis(&params) == 2);
     params.numCis = 0;
     CHECK(ll_get_number_enable_cis(&params) == 0);
+    LlCisCigParamsTest_t test_params;
+    memset(&test_params, 0, sizeof(test_params));
+    test_params.cigId = 1;
+    test_params.numCis = 2;
+    test_params.pCisParam[0].cisId = 1;
+    test_params.pCisParam[1].cisId = 9;
+    CHECK(ll_get_number_enable_cis_test(&test_params) == 1);
+    a->role = 0; a->bnMToS = 0;
+    CHECK(ll_cis_tx_test(a, 1) == 17);
+    a->bnMToS = 1;
+    CHECK(ll_cis_tx_test(a, 2) == 0 && ll_cis_tx_test(a, 3) == 18);
+    a->role = 1; a->bnSToM = 0;
+    CHECK(ll_cis_tx_test(a, 0) == 17);
+    a->bnSToM = 1;
+    CHECK(ll_cis_tx_test(a, 0) == 0);
+    a->rxTestEnabled = 0; a->rxPendInit = 0xff;
+    CHECK(ll_cis_rx_test(a, 1) == 0 && a->rxTestEnabled == 1 && a->rxPendInit == 1);
+    CHECK(a->numRxSuccess == 0 && a->numRxMissed == 0 && a->numRxFailed == 0 && a->isoRxPldType == 1);
+    LlIsoTestCtrs_t counters = { 1, 2, 3 };
+    CHECK(ll_cis_read_test_counters(a, &counters) == 0);
+    CHECK(counters.numSuccess == 0 && counters.numMissed == 0 && counters.numFailed == 0);
+    a->numRxSuccess = 4; a->numRxMissed = 5; a->numRxFailed = 6;
+    CHECK(ll_cis_read_test_counters(a, &counters) == 0);
+    CHECK(counters.numSuccess == 4 && counters.numMissed == 5 && counters.numFailed == 6);
+    a->rxTestEnabled = 0; a->txTestEnabled = 0;
+    CHECK(ll_cis_read_test_counters(a, &counters) == 12);
     ll_iso_hdl.max_cis_number = 8;
     CHECK(ll_get_number_avail_cis() == 5);                     /* 3 allocated */
     ll_iso_hdl.max_cis_number = 1;
@@ -497,6 +760,53 @@ int main(void)
     CHECK(ll_cis_calc_subevt_interleaved_us(&params) == expect_f + expect_g);
     params.numCis = 0;
     CHECK(ll_cis_calc_subevt_interleaved_us(&params) == 0);
+    /* Lifecycle init preserves the SDK's existing allocation bitmap. */
+    memset(&ll_iso_hdl, 0x5a, sizeof(ll_iso_hdl)); ll_iso_hdl.cis_bitmap = 0xa5;
+    for (unsigned i = 0; i < 15; ++i) ll_dispatch_msg_table[i] = noop_message;
+    ll_cis_init(); CHECK(master_calls == 1 && slave_calls == 1);
+    for (unsigned i = 0; i < 15; ++i)
+        CHECK(ll_dispatch_msg_table[i] == (i == 12 ? ll_cis_msg_handler : noop_message));
+
+    static le_cig_t group;
+    static le_cis_t stream1, stream2;
+    memset(&group, 0, sizeof(group)); memset(&stream1, 0, sizeof(stream1));
+    memset(&stream2, 0, sizeof(stream2)); INIT_LIST_HEAD(&group.cis_head);
+    INIT_LIST_HEAD(&stream1.entry); INIT_LIST_HEAD(&stream2.entry);
+    group.cigId = 7; stream1.cig = stream2.cig = &group;
+    stream1.cisHandle = 96; stream2.cisHandle = 97;
+    stream1.aclHandle = stream2.aclHandle = 0x1234;
+    list_add_tail(&stream1.entry, &ll_iso_hdl.cis_head);
+    list_add_tail(&stream2.entry, &ll_iso_hdl.cis_head); ll_iso_hdl.cis_number = 2;
+    stream2.cigSyncDelayUsec = 0x10203; stream2.cisSyncDelayUsec = 0x40506;
+    stream2.transLatUsec = 0x70809; stream2.phyMToS = 1; stream2.phySToM = 2;
+    stream2.nse = 3; stream2.bnMToS = 4; stream2.bnSToM = 99;
+    stream2.ftMToS = 5; stream2.ftSToM = 6;
+    stream2.pduSizeMToS = 0x1234; stream2.pduSizeSToM = 0x5678; stream2.isoInterval = 0xabcd;
+    _Alignas(u16) u8 message[] = {96, 0, 0x33, 0};
+    /* Logging changes the handle, and lookup logging changes status again. */
+    log_tag_const_i_LL_CIS = 1; mutable_message = message; nfreed = 0;
+    ll_dispatch_msg_table[12](0, message); mutable_message = NULL;
+    static const u32 event_expected[] = {0xa7, 97, 0x10203, 0x40506, 0x70809, 0x70809,
+                                        1, 2, 3, 4, 4, 5, 6, 0x1234, 0x5678, 0xabcd};
+    CHECK(events == 1 && !memcmp(event_words, event_expected, sizeof(event_expected)));
+    CHECK(nfreed == 1 && freed[0] == &stream2 && ll_iso_hdl.cis_number == 1);
+    /* Success emits first, then establishes even with no ACL link result. */
+    message[0] = 96; message[2] = 0;
+    mutable_group = &group; ll_dispatch_msg_table[12](1, message); mutable_group = NULL;
+    CHECK(events == 2 && !event_words[0] && event_words[1] == 96 && handle_calls == 1);
+    CHECK(group.numCisEsted == 0); /* callback-updated 255 wraps to zero */
+    ll_dispatch_msg_table[12](2, message); CHECK(events == 2 && nfreed == 1);
+    ll_dispatch_msg_table[12](255, NULL); CHECK(events == 2 && nfreed == 1);
+    log_tag_const_i_LL_CIS = 0;
+
+    /* Close preserves empty CIGs, but frees streams/groups with the SDK list quirks. */
+    list_add_tail(&group.entry, &ll_iso_hdl.cig_head);
+    ll_cis_close(); CHECK(nfreed == 2 && freed[1] == &stream1 && !ll_iso_hdl.cis_number);
+    CHECK(ll_iso_hdl.cig_head.next == &group.entry); /* empty group is retained */
+    INIT_LIST_HEAD(&stream1.entry); ll_cig_add_cis_tail(&group, &stream1);
+    ll_iso_hdl.cis_number = 1; nfreed = 0;
+    ll_cis_close(); CHECK(nfreed == 2 && freed[0] == &stream1 && freed[1] == &group);
+    CHECK(list_empty(&ll_iso_hdl.cis_head) && list_empty(&ll_iso_hdl.cig_head));
     return TEST_DONE("btctrler_ll_cis");
 }
 #endif

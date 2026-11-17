@@ -22,6 +22,13 @@ extern void log_print(int level, const char *tag, const char *format, ...);
 extern void printf_buf(const void *buffer, int size);
 
 #define LL_CODE __attribute__((section(".ble_ll_code")))
+#ifdef CONFIG_CPU_BD19
+#define LL_EXT_ADV_MEMCPY(dst, src, size) __builtin_memcpy((dst), (src), (size))
+#define LL_EXT_ADV_MEMSET(dst, value, size) __builtin_memset((dst), (value), (size))
+#else
+#define LL_EXT_ADV_MEMCPY(dst, src, size) memcpy((dst), (src), (size))
+#define LL_EXT_ADV_MEMSET(dst, value, size) memset((dst), (value), (size))
+#endif
 
 #ifndef UNITTEST
 _Static_assert(sizeof(struct le_ext_primary_link) == 28, "SDK primary link size");
@@ -48,6 +55,40 @@ const struct ble_ext_handler ll_ext_adv_handler __attribute__((section(".ble_ll_
     ll_ext_adv_rx_probe_handler,
     NULL,
 };
+
+/* The SDK currently reports periodic advertising disabled for every handle. */
+u8 LctrIsPerAdvEnabled(u8 adv_handle) LL_CODE;
+u8 LctrIsPerAdvEnabled(u8 adv_handle)
+{
+    (void)adv_handle;
+    return 0;
+}
+
+static void ll_acad_msg_handler(u8 msg_id, void *msg) LL_CODE;
+static void ll_acad_msg_handler(u8 msg_id, void *msg)
+{
+    (void)msg;
+    switch (msg_id) {
+    case 0:
+        if (log_tag_const_i_LL_EXT_ADV)
+            log_print(2, NULL, "[Info]: [LL_EXT_ADV]LL_ACAD_MSG_CREATE_BIG\r\n");
+        break;
+    case 2:
+        if (log_tag_const_i_LL_EXT_ADV)
+            log_print(2, NULL, "[Info]: [LL_EXT_ADV]LL_ACAD_MSG_TERMINATED_BIG\r\n");
+        break;
+    case 1:
+        if (log_tag_const_i_LL_EXT_ADV)
+            log_print(2, NULL, "[Info]: [LL_EXT_ADV]LL_ACAD_MSG_CHANNEL_MAP\r\n");
+        break;
+    }
+}
+
+void ll_acad_init(void) LL_CODE;
+void ll_acad_init(void)
+{
+    ll_dispatch_msg_table[8] = ll_acad_msg_handler;
+}
 
 static void list_del(struct list_head *entry)
 {
@@ -78,7 +119,7 @@ static void ll_ext_adv_rx_probe_handler(void *priv, struct ble_ext_rx *rx)
         struct le_ext_secondary_link *link = priv;
         struct le_addr local_addr;
         local_addr.addr_type = rx->rxadd;
-        memcpy(local_addr.addr, &rx->data[6], 6);
+        LL_EXT_ADV_MEMCPY(local_addr.addr, &rx->data[6], 6);
         __ble5_ops->legacy_open(link->hw);
         __ble5_ops->ext_ioctrl(link->hw, 15);
         link->connect_link = ll_create_conn_link(link->hw, &local_addr, 1, rx->txadd, rx->data, &rx->data[12]);
@@ -402,7 +443,7 @@ static void __set_ll_ext_primary_adv_param(struct __ext_adv_group *adv_set, stru
         break;
     }
 
-    memcpy(&primary_adv->peer_addr.addr_type, &adv_set->ext_adv_param.Peer_Address_Type, 7);
+    LL_EXT_ADV_MEMCPY(&primary_adv->peer_addr.addr_type, &adv_set->ext_adv_param.Peer_Address_Type, 7);
     __set_ll_local_addr_common(&primary_adv->addr, adv_set->ext_adv_param.Own_Address_Type);
     primary_adv->sid = adv_set->ext_adv_param.Advertising_SID & 15;
     pseudo_random_genrate(&primary_adv->channel_index, 1);
@@ -457,7 +498,7 @@ static void __set_ll_ext_secondary_adv_param(struct le_ext_secondary_link *link,
 
     __set_ll_local_addr_common(&ext_adv->addr, adv_set->ext_adv_param.Own_Address_Type);
     if (ext_adv->event_type == 6 || ext_adv->event_type == 8) {
-        memcpy(ext_adv->peer_addr.addr, adv_set->ext_adv_param.Peer_Address, 6);
+        LL_EXT_ADV_MEMCPY(ext_adv->peer_addr.addr, adv_set->ext_adv_param.Peer_Address, 6);
         if (log_tag_const_i_LL_EXT_ADV) {
             log_print(2, NULL, "[Info]: [LL_EXT_ADV]peer addr type=0x%x\n\r\n", ext_adv->peer_addr.addr_type);
             printf_buf(ext_adv->peer_addr.addr, 6);
@@ -466,8 +507,8 @@ static void __set_ll_ext_secondary_adv_param(struct le_ext_secondary_link *link,
     if (link->periodic_link != NULL) {
         u16 min = adv_set->periodic_info->Periodic_Advertising_Interval_Min;
         ext_adv->sync_info.interval = (config_vendor_le_bb & 1) ? min : (min > 6 ? min : 6);
-        memcpy(ext_adv->sync_info.chm, channel, 5);
-        memcpy(ext_adv->sync_info.crcinit, crcinit, 3);
+        LL_EXT_ADV_MEMCPY(ext_adv->sync_info.chm, channel, 5);
+        LL_EXT_ADV_MEMCPY(ext_adv->sync_info.crcinit, crcinit, 3);
         if (link->periodic_link->sync_hw_info.aa == 0)
             access_addr_generate((u8 *)&link->periodic_link->sync_hw_info.aa);
         ext_adv->sync_info.aa = link->periodic_link->sync_hw_info.aa;
@@ -490,7 +531,7 @@ int ll_ext_adv_data_update(u8 adv_handle, struct __ext_adv_group *adv_set)
         log_print(2, NULL, "[Info]: [LL_EXT_ADV]--func=%s\r\n", "ll_ext_adv_data_update");
     struct le_ext_primary_link *link = ext_primary_link_for_handle(adv_handle);
     if (link == NULL) return 3;
-    memset(&ext_adv, 0, 64);
+    LL_EXT_ADV_MEMSET(&ext_adv, 0, 64);
     __set_ll_ext_primary_adv_param(adv_set, &ext_adv);
     __set_ll_ext_primary_adv_data(&ext_adv);
     __set_ll_ext_secondary_adv_param(link->secondary_link, adv_set, &ext_adv);
@@ -530,19 +571,19 @@ static void exchange_ExtAdvParam_2_LegacyAdvParam(struct __ext_adv_group *p)
     adv_param.Advertising_Type = type;
     adv_param.Own_Address_Type = p->ext_adv_param.Own_Address_Type;
     adv_param.Peer_Address_Type = p->ext_adv_param.Peer_Address_Type;
-    memcpy(adv_param.Peer_Address, p->ext_adv_param.Peer_Address, 6);
+    LL_EXT_ADV_MEMCPY(adv_param.Peer_Address, p->ext_adv_param.Peer_Address, 6);
     adv_param.Advertising_Channel_Map = p->ext_adv_param.Primary_Advertising_Channel_Map;
     adv_param.Advertising_Filter_Policy = p->ext_adv_param.Advertising_Filter_Policy;
     ll_adv_set_params((const u8 *)&adv_param);
 
     u16 len = p->ext_adv_data.cur_len;
     adv_data.length = len;
-    memcpy(adv_data.data, p->ext_adv_data.data, len & 255);
+    LL_EXT_ADV_MEMCPY(adv_data.data, p->ext_adv_data.data, len & 255);
     ll_adv_set_adv_data(&adv_data.length);
 
     len = p->ext_adv_data.cur_len;
     scan_resp_data.length = len;
-    memcpy(scan_resp_data.data, p->ext_adv_data.data, len & 255);
+    LL_EXT_ADV_MEMCPY(scan_resp_data.data, p->ext_adv_data.data, len & 255);
     ll_adv_set_scan_rsp_data(&scan_resp_data.length);
 }
 
@@ -574,7 +615,7 @@ int ll_ext_adv_open(u8 adv_handle, struct __ext_adv_group *adv_set) LL_CODE;
 int ll_ext_adv_open(u8 adv_handle, struct __ext_adv_group *adv_set)
 {
     struct ble_ext_adv ext_adv;
-    memset(&ext_adv, 0, 64);
+    LL_EXT_ADV_MEMSET(&ext_adv, 0, 64);
 
     struct le_ext_primary_link *link = __new_ext_link(28);
     if (link != NULL) {
@@ -596,8 +637,15 @@ int ll_ext_adv_open(u8 adv_handle, struct __ext_adv_group *adv_set)
         log_print(2, NULL, "[Info]: [LL_EXT_ADV]--func=%s\r\n", "__set_ll_ext_primary_adv_state");
     __set_ll_ext_primary_adv_param(adv_set, &ext_adv);
     __set_ll_ext_primary_adv_data(&ext_adv);
+#ifdef CONFIG_CPU_BD19
+    /* BD19 caches this pointer across the two radio callbacks. */
+    void *primary_hw = link->hw;
+    __ble5_ops->ext_ioctrl(primary_hw, 9, ext_adv.addr.addr_type, ext_adv.addr.addr);
+    __ble5_ops->ext_adv_ctrl(primary_hw, 0, &ext_adv);
+#else
     __ble5_ops->ext_ioctrl(link->hw, 9, ext_adv.addr.addr_type, ext_adv.addr.addr);
     __ble5_ops->ext_adv_ctrl(link->hw, 0, &ext_adv);
+#endif
 
     if (log_tag_const_i_LL_EXT_ADV)
         log_print(2, NULL, "[Info]: [LL_EXT_ADV]is_need_secondary=0x%x\n\r\n", ext_adv.is_need_aux);
@@ -691,6 +739,7 @@ void ll_ext_legacy_adv_scan_req_received(struct le_link *link, struct ble_rx *rx
 
 struct ext_le_parameter ext_le_param;
 struct ext_link_layer_handle ext_ll_hdl;
+ll_dispatch_msg_t ll_dispatch_msg_table[15];
 const struct ble5_operation *__ble5_ops;
 u8 log_tag_const_e_LL_EXT_ADV = 1, log_tag_const_i_LL_EXT_ADV = 0;
 u64 config_btctler_le_features = 4096 | 8192;
@@ -711,6 +760,8 @@ static void TF(const char *format, ...)
 #define ID(p) ((int)(uintptr_t)(p))
 
 static int errors, infos, resumes, frees, new_link_fail, new_link_len, open_count, open_fail_at;
+static int mutate_primary_hw_during_ioctrl, primary_config_hw, primary_start_hw;
+static const char *last_log_format;
 static int timer_result = 77, timer_msec, timer_context_id, timer_removed;
 static void (*timer_callback)(void *);
 static void *timer_context;
@@ -741,7 +792,8 @@ static const struct ble_ext_handler *handler_registered;
 
 void log_print(int level, const char *tag, const char *format, ...)
 {
-    (void)tag; (void)format;
+    (void)tag;
+    last_log_format = format;
     if (level == 4) errors++; else infos++;
 }
 void printf_buf(const void *buffer, int size) { (void)buffer; TF("pb%d ", size); }
@@ -820,6 +872,12 @@ static void test_ioctrl(void *hw, int cmd, ...)
     if (cmd == 9 || cmd == 10) {
         int type = va_arg(ap, int);
         u8 *addr = va_arg(ap, u8 *);
+        if (cmd == 9 && mutate_primary_hw_during_ioctrl) {
+            struct le_ext_primary_link *primary = ext_primary_link_for_handle(1);
+            CHECK(primary != NULL);
+            primary->hw = HW(0x1bad);
+            mutate_primary_hw_during_ioctrl = 0;
+        }
         TF("io%d_%d(%d,%02x) ", ID(hw), cmd, type, addr[0]);
     } else if (cmd == 11) {
         empty_seen = va_arg(ap, u8 *);
@@ -834,9 +892,11 @@ static void test_adv_ctrl(void *hw, int cmd, ...)
     va_list ap;
     va_start(ap, cmd);
     switch (cmd) {
-    case 0: ctrl0 = *va_arg(ap, struct ble_ext_adv *); TF("c%d_0 ", ID(hw)); break;
+    case 0: primary_config_hw = ID(hw); ctrl0 = *va_arg(ap, struct ble_ext_adv *); TF("c%d_0 ", ID(hw)); break;
     case 1: ctrl1 = *va_arg(ap, struct ble_ext_adv *); TF("c%d_1 ", ID(hw)); break;
-    case 3: case 4: case 5: TF("c%d_%d(%d) ", ID(hw), cmd, va_arg(ap, int)); break;
+    case 3: case 4: case 5:
+        if (cmd == 3) primary_start_hw = ID(hw);
+        TF("c%d_%d(%d) ", ID(hw), cmd, va_arg(ap, int)); break;
     case 6: case 7: TF("c%d_%d(%d) ", ID(hw), cmd, ID(va_arg(ap, void *))); break;
     case 8: (void)va_arg(ap, void *); sync_adv_seen = 1; TF("c%d_8 ", ID(hw)); break;
     default: CHECK(0);
@@ -867,6 +927,7 @@ static void reset(void)
     trace[0] = 0;
     errors = infos = resumes = frees = term_count = scan_events = legacy_conns = periodic_updates = 0;
     new_link_fail = open_count = open_fail_at = 0;
+    mutate_primary_hw_during_ioctrl = primary_config_hw = primary_start_hw = 0;
     timer_result = 77; timer_removed = 0; timer_msec = 0;
     upload_rx = NULL; upload_connect = NULL;
     config_btctler_le_features = 4096 | 8192;
@@ -920,6 +981,23 @@ int main(void)
 {
     __ble5_ops = &operations;
     reset();
+
+    /* The SDK's dormant periodic-advertising query always returns zero. */
+    CHECK(LctrIsPerAdvEnabled(0) == 0 && LctrIsPerAdvEnabled(0xff) == 0);
+    CHECK(ll_dispatch_msg_table[8] == NULL);
+    ll_acad_init();
+    CHECK(ll_dispatch_msg_table[8] != NULL);
+    log_tag_const_i_LL_EXT_ADV = 1;
+    infos = 0;
+    ll_dispatch_msg_table[8](0, NULL);
+    CHECK(infos == 1 && !strcmp(last_log_format, "[Info]: [LL_EXT_ADV]LL_ACAD_MSG_CREATE_BIG\r\n"));
+    ll_dispatch_msg_table[8](2, NULL);
+    CHECK(infos == 2 && !strcmp(last_log_format, "[Info]: [LL_EXT_ADV]LL_ACAD_MSG_TERMINATED_BIG\r\n"));
+    ll_dispatch_msg_table[8](1, NULL);
+    CHECK(infos == 3 && !strcmp(last_log_format, "[Info]: [LL_EXT_ADV]LL_ACAD_MSG_CHANNEL_MAP\r\n"));
+    ll_dispatch_msg_table[8](3, NULL);
+    CHECK(infos == 3);
+    log_tag_const_i_LL_EXT_ADV = 0;
 
     /* The handler table: only the receive hook is set; it sits in the SDK's const section. */
     CHECK(ll_ext_adv_handler.ext_rx_probe_handler != NULL && ll_ext_adv_handler.ext_event_probe_handler == NULL);
@@ -1042,6 +1120,15 @@ int main(void)
     CHECK(ll_ext_adv_open(1, s) == 0 && ctrl0.event_type == 2 && ctrl0.is_need_aux == 1);
     reset(); s = add_set(1, 0); s->periodic_info = calloc(1, sizeof(*s->periodic_info));
     CHECK(ll_ext_adv_open(1, s) == 0 && ctrl0.event_type == 2 && ctrl0.is_need_aux == 1);
+    /* The SDK reuses the primary HW pointer across these two callbacks, then
+     * reloads link->hw before its later start command. */
+    reset(); s = add_set(1, 0); mutate_primary_hw_during_ioctrl = 1;
+    CHECK(ll_ext_adv_open(1, s) == 0);
+#ifdef CONFIG_CPU_BD19
+    CHECK(primary_config_hw == ID(HW(0x1001)) && primary_start_hw == ID(HW(0x1bad)));
+#else
+    CHECK(primary_config_hw == ID(HW(0x1bad)) && primary_start_hw == ID(HW(0x1bad)));
+#endif
     reset(); s = add_set(1, 4);
     CHECK(ll_ext_adv_open(1, s) == 0 && ctrl0.event_type == 3 && ctrl0.is_need_aux == 0);
     reset(); s = add_set(1, 4); s->ext_adv_data.cur_len = 1;

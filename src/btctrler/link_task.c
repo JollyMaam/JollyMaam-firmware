@@ -50,6 +50,17 @@ const struct link_task_ops idle_task_ops = { idle_resume, idle_suspend };
 
 _Static_assert(offsetof(struct link_task, entry) == 16, "SDK link_task layout");
 
+#ifdef CONFIG_CPU_BD19
+/* The BD19 object exports i8, while the recovered shared-header prototype is
+ * bool/i1. Bind the source implementation to the SDK symbol with its i8 ABI. */
+u8 link_task_idle_task_enable_detect_ir(void)
+    __asm__("link_task_idle_task_enable_detect");
+#define link_task_idle_task_enable_detect link_task_idle_task_enable_detect_ir
+#define LINK_TASK_IDLE_RESULT u8
+#else
+#define LINK_TASK_IDLE_RESULT bool
+#endif
+
 /* Unlink and point the node at itself. */
 static void list_del(struct list_head *entry)
 {
@@ -549,14 +560,22 @@ static int idle_resume(struct link_task *task)
         int left = schedule_period - (int)bredr_read_slot_clk();
         if (left > 12) {
             if (powerdown_timer == TIMER_NONE) powerdown_timer = slot_timer_get();
+#ifdef CONFIG_CPU_BD19
+            slot_timer_set(powerdown_timer, (void (*)(void *))powerdown_entry, (void *)(intptr_t)(left - 4), 4);
+#else
             slot_timer_set(powerdown_timer, (void (*)(void *))powerdown_entry, (void *)(intptr_t)(left - 8), 8);
+#endif
         }
         task->run_slot = (u16)(left + 32);
     } else {
         u16 period = idle_period_slot;
         task->run_slot = period;
         if (powerdown_timer == TIMER_NONE) powerdown_timer = slot_timer_get();
+#ifdef CONFIG_CPU_BD19
+        slot_timer_set(powerdown_timer, (void (*)(void *))powerdown_entry, (void *)(intptr_t)(period - 10), 4);
+#else
         slot_timer_set(powerdown_timer, (void (*)(void *))powerdown_entry, (void *)(intptr_t)(period - 14), 8);
+#endif
     }
     return 0;
 }
@@ -591,7 +610,11 @@ void idle_reset(int slot)
 {
     if (powerdown_timer != TIMER_NONE) slot_timer_put(powerdown_timer);
     powerdown_timer = slot_timer_get();
+#ifdef CONFIG_CPU_BD19
+    if (slot > 4) slot_timer_set(powerdown_timer, (void (*)(void *))powerdown_entry, (void *)(intptr_t)(slot - 4), 4);
+#else
     if (slot > 8) slot_timer_set(powerdown_timer, (void (*)(void *))powerdown_entry, (void *)(intptr_t)(slot - 8), 8);
+#endif
     bredr_power_off(0);
 }
 
@@ -601,7 +624,7 @@ u8 get_idle_task_state(void)
 }
 
 /* True if no listed task has a type that keeps the radio busy (0xfe58). */
-bool link_task_idle_task_enable_detect(void)
+LINK_TASK_IDLE_RESULT link_task_idle_task_enable_detect(void)
 {
     u16 types = 0;
     struct link_task *p;
@@ -660,13 +683,16 @@ void link_task_idle_run(int slot)
 #include <string.h>
 int config_btctler_dual_a2dp;
 static int irq_depth, timers_got, timer_put, timer_set_slot, timer_reset_slot, timer_disabled, off_slot = -1, power_on;
-static void (*handlers[8])(void *);
-static void *privs[8];
+/* The fake allocator issues fresh IDs across all cases instead of reusing
+ * released timers; capture every ID and fail before exhausting the model. */
+static void (*handlers[64])(void *);
+static void *privs[64];
 static u32 clk;
-u8 slot_timer_get(void) { return (u8)timers_got++; }
+u8 slot_timer_get(void) { CHECK(timers_got < (int)(sizeof handlers / sizeof handlers[0])); return (u8)timers_got++; }
 static int pd_slot; static void *pd_priv;
 void slot_timer_set(u8 i, void (*h)(void *), void *priv, int slot)
 {
+    CHECK(i < sizeof handlers / sizeof handlers[0]);
     handlers[i] = h; privs[i] = priv;
     if (h == (void (*)(void *))powerdown_entry) { pd_priv = priv; pd_slot = slot; } else timer_set_slot = slot;
 }
@@ -742,7 +768,8 @@ int main(void)
     link_task_del(&le);
     CHECK(curr_task == 0 && list_empty() && timer_put == 1 && task_timer == TIMER_NONE);
 
-    /* Idle: enabled only without LE, period 736 less 14 to power down. */
+    /* Idle: enabled only without LE. The BD19 and BR23 power-down timers use
+     * different lead times and callback periods in their SDK members. */
     set_idle_period_slot(800);
     CHECK(idle_period_slot == 736);
     CHECK(link_task_idle_task_enable_detect() == 1);
@@ -754,15 +781,38 @@ int main(void)
     link_task_idle_enable();
     CHECK(idle_task.state == 1 && idle_task.task.run_slot == 736 && curr_task == &idle_task.task);
     CHECK(get_idle_task_state() == 1 && timer_set_slot == 736);
+#ifdef CONFIG_CPU_BD19
+    CHECK((intptr_t)pd_priv == 726 && pd_slot == 4);
+#else
     CHECK((intptr_t)pd_priv == 722 && pd_slot == 8);
+#endif
     powerdown_entry((s32)(intptr_t)pd_priv);
+#ifdef CONFIG_CPU_BD19
+    CHECK(off_slot == 726 && powerdown_timer == TIMER_NONE);
+#else
     CHECK(off_slot == 722 && powerdown_timer == TIMER_NONE);
+#endif
 
-    /* With a scheduling period: power down 8 before it, run 32 past it. */
+    /* With a scheduling period, preserve the SDK-specific power-down lead. */
     link_task_set_period(1000);
     clk = 900;
     idle_resume(&idle_task.task);
+#ifdef CONFIG_CPU_BD19
+    CHECK((intptr_t)pd_priv == 96 && pd_slot == 4 && idle_task.task.run_slot == 132);
+#else
     CHECK((intptr_t)pd_priv == 92 && idle_task.task.run_slot == 132);
+#endif
+    pd_priv = (void *)1; pd_slot = -1;
+    clk = 988;                                  /* 12 left: strict threshold, no re-arm */
+    idle_resume(&idle_task.task);
+    CHECK(pd_priv == (void *)1 && idle_task.task.run_slot == 44);
+    clk = 987;                                  /* 13 left: re-arm at chip-specific lead */
+    idle_resume(&idle_task.task);
+#ifdef CONFIG_CPU_BD19
+    CHECK((intptr_t)pd_priv == 9 && pd_slot == 4 && idle_task.task.run_slot == 45);
+#else
+    CHECK((intptr_t)pd_priv == 5 && pd_slot == 8 && idle_task.task.run_slot == 45);
+#endif
     clk = 995;                                   /* 5 left: no power-down timer */
     pd_priv = (void *)1;
     idle_resume(&idle_task.task);
@@ -773,6 +823,25 @@ int main(void)
     link_task_idle_disable();
     CHECK(idle_task.state == 0 && schedule_period == 0 && power_on == 1 && curr_task == 0);
     CHECK(get_idle_task_state() == 0 && list_empty());
+
+    /* idle_reset uses the same chip-specific callback threshold/lead. */
+    off_slot = -1; pd_priv = (void *)99; pd_slot = -99;
+    idle_reset(4);
+    CHECK(pd_priv == (void *)99 && pd_slot == -99 && off_slot == 0);
+    idle_reset(5);
+#ifdef CONFIG_CPU_BD19
+    CHECK((intptr_t)pd_priv == 1 && pd_slot == 4);
+#else
+    CHECK(pd_priv == (void *)99 && pd_slot == -99);
+#endif
+    idle_reset(13);
+#ifdef CONFIG_CPU_BD19
+    CHECK((intptr_t)pd_priv == 9 && pd_slot == 4);
+#else
+    CHECK((intptr_t)pd_priv == 5 && pd_slot == 8);
+#endif
+    powerdown_entry(9); /* idle task is disabled, so this only releases timer */
+    CHECK(powerdown_timer == TIMER_NONE && off_slot == 0);
 
     link_task_add(&acl);
     link_task_add(&le);

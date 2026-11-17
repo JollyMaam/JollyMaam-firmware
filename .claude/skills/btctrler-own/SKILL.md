@@ -98,7 +98,9 @@ commit bodies, but do not merge that app branch. Migration provenance is in
 For this controller-only migration validate with `make -j32 controller-objects
 controller-test test controller-layouts controller-tools-test controller-audit`
 and `make controller-compare`. Four-product app targets are on the preserved
-application branch, not this branch. Existing baseline C is byte-identical to
-44d0073; `bd19/shared/` holds imported recoveries pending proven sharing.
+application branch, not this branch. A source in `src/btctrler/` compiles for
+both chips (`CONFIG_CPU_BD19` selects chip differences); `bd19/` holds BD19-only
+sources. A shared-source change must leave the BR23 firmware image unchanged
+unless the change is meant for BR23 too.
 Do not promise strict SDK equivalence: the BR23 baseline includes earlier
 recovery choices/guards recorded in revisit.md. Audit those separately.

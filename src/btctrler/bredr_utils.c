@@ -8,27 +8,36 @@
 #define CLKN_WRAP   134217728
 #define CLKN_WINDOW 69120000
 
+/* BD19's SDK places all four entry points in the Classic LMP code section. */
+#ifdef CONFIG_CPU_BD19
+#define CLKN_CODE __attribute__((section(".classic_lmp_code")))
+#define CLKN_INLINE inline __attribute__((always_inline))
+#else
+#define CLKN_CODE
+#define CLKN_INLINE
+#endif
+
 /* Forward distance from b to a, within the wrap. */
-static int distance(int a, int b)
+static CLKN_INLINE int distance(int a, int b)
 {
     return (int)((a > b ? (u32)a : (u32)a + CLKN_WRAP) - (u32)b);
 }
 
 /* 1 if a is less than a window after b. */
-int bredr_clkn_after(int clkn_a, int clkn_b)
+CLKN_CODE int bredr_clkn_after(int clkn_a, int clkn_b)
 {
     return distance(clkn_a, clkn_b) < CLKN_WINDOW;
 }
 
 /* 1 if a is less than a window before b (b after a, as above). */
-int bredr_clkn_before(int clkn_a, int clkn_b)
+CLKN_CODE int bredr_clkn_before(int clkn_a, int clkn_b)
 {
     return distance(clkn_b, clkn_a) < CLKN_WINDOW;
 }
 
 /* end - begin; when begin is more than a window past end, end is taken to
  * have wrapped and the wrap is added. */
-int bredr_clkn2offset(int clkn_begin, int clkn_end)
+CLKN_CODE int bredr_clkn2offset(int clkn_begin, int clkn_end)
 {
     u32 offset = (u32)clkn_end - (u32)clkn_begin;
     if (clkn_begin > clkn_end && clkn_begin - clkn_end > CLKN_WINDOW)
@@ -38,7 +47,7 @@ int bredr_clkn2offset(int clkn_begin, int clkn_end)
 
 /* begin + offset, with one wrap subtracted if that reaches 2^27 (no mask:
  * negative or very large offsets are not brought into range). */
-int bredr_offset2clkn(int clkn_begin, int offset)
+CLKN_CODE int bredr_offset2clkn(int clkn_begin, int offset)
 {
     u32 sum = (u32)offset + (u32)clkn_begin;
     return (int)((int)sum > CLKN_WRAP - 1 ? sum - CLKN_WRAP : sum);

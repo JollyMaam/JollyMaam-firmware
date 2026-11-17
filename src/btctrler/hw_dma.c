@@ -1,6 +1,7 @@
 /* DMA buffer pools and queues. Preserve the SDK's assertion fall-through,
  * interrupt masking, and TX-before-RX destroy order. */
 #include <stdio.h>
+#include <string.h>
 #include "btctrler/glue.h"
 
 static struct dma_handle hdl;
@@ -53,6 +54,10 @@ void *hw_dma_alloc(u8 type, u32 size)
             cpu_reset();
         }
     }
+#ifdef CONFIG_CPU_BD19
+    /* SDK reloads the selected pool after a returning assertion/reset hook. */
+    pool = type == DMA_TYPE_RX ? hdl.rx : hdl.tx;
+#endif
     return lbuf_alloc_btctrler(pool, size);
 }
 
@@ -109,12 +114,77 @@ void hw_dma_destory(void)
     }
 }
 
+#ifdef CONFIG_CPU_BD19
+void hw_dma_debug(void)
+{
+    lbuf_debug_btctrler(hdl.rx, 0);
+    lbuf_debug_btctrler(hdl.tx, 0);
+}
+
+u32 hw_dma_remain_len(u32 len)
+{
+    return lbuf_remain_len_btctrler(hdl.tx, len);
+}
+
+void *hw_dma_realloc(void *dma, u32 size)
+{
+    return lbuf_realloc_btctrler(dma, size);
+}
+
+void *hw_dma_peek(struct _dma_head *head)
+{
+    local_irq_disable();
+    struct list_head *entry = head->head.next;
+    void *dma = entry == &head->head ? NULL : entry;
+    local_irq_enable();
+    return dma;
+}
+
+u8 *le_alloc_rx_pdu(u16 size)
+{
+    u8 *pdu = lbuf_alloc_btctrler(hdl.rx, size);
+    if (pdu) memset(pdu, 0, size);
+    return pdu;
+}
+
+u8 *le_realloc_rx_pdu(u8 *pdu, u16 size)
+{
+    return lbuf_realloc_btctrler(pdu, size);
+}
+
+void le_push_rx_pdu(void *head, u8 *pdu) { lbuf_push_queue_btctrler(head, pdu); }
+u8 *le_pop_rx_pdu(void *head) { return lbuf_pop_queue_btctrler(head); }
+u8 *le_peek_rx_pdu(void *head) { return lbuf_peek_queue_btctrler(head); }
+void le_free_rx_pdu(u8 *pdu) { lbuf_free_btctrler(pdu); }
+int le_rx_queue_empty(void *head) { return ((struct list_head *)head)->next == head; }
+void le_rx_queue_clear(void *head) { lbuf_clear_queue_btctrler(head); }
+#endif
+
 #ifdef UNITTEST
 #include "test.h"
 
 static struct lbuff_head_btctrler pools[2];
 static struct lbuff_head_btctrler *last_alloc_pool;
 static u32 last_alloc_size;
+#ifdef CONFIG_CPU_BD19
+static u8 pdu_storage[32];
+static int pdu_alloc_mode;
+static unsigned debug_count;
+static struct lbuff_head_btctrler *debug_pools[2];
+static int return_from_failure;
+void cpu_assert_debug(void) { CHECK(return_from_failure); hdl.rx = &pools[0]; }
+void p33_soft_reset(void) { CHECK(return_from_failure); hdl.rx = &pools[0]; }
+void lbuf_debug_btctrler(struct lbuff_head_btctrler *pool, u8 flag)
+{
+    CHECK(flag == 0 && debug_count < 2);
+    debug_pools[debug_count++] = pool;
+}
+u32 lbuf_remain_len_btctrler(struct lbuff_head_btctrler *pool, u32 len)
+{
+    CHECK(pool == &pools[1]);
+    return len + 7;
+}
+#endif
 static void *last_freed;
 static struct lbuff_head_btctrler *cleared[2];
 static unsigned int clear_count, irq_disable_count, irq_enable_count;
@@ -131,6 +201,9 @@ void *lbuf_alloc_btctrler(struct lbuff_head_btctrler *pool, u32 size)
 {
     last_alloc_pool = pool;
     last_alloc_size = size;
+#ifdef CONFIG_CPU_BD19
+    if (pdu_alloc_mode) return pdu_alloc_mode == 1 ? pdu_storage : NULL;
+#endif
     return (void *)((uintptr_t)pool + size);
 }
 
@@ -176,6 +249,38 @@ int main(void)
     clear_count = 0;
     hw_dma_destory();
     CHECK(clear_count == 2 && cleared[0] == &pools[1] && cleared[1] == &pools[0]);
+#ifdef CONFIG_CPU_BD19
+    /* IR: peek masks IRQs even for an empty queue, and never unlinks. */
+    unsigned masked = irq_disable_count;
+    CHECK(hw_dma_peek(&head) == NULL);
+    CHECK(irq_disable_count == masked + 1 && irq_enable_count == masked + 1);
+    hw_dma_push(&head, &first);
+    CHECK(hw_dma_peek(&head) == &first);
+    CHECK(head.head.next == &first.entry && head.head.prev == &first.entry);
+    CHECK(hw_dma_pop(&head) == &first);
+    /* IR: RX allocation zeroes exactly size bytes only after success. */
+    memset(pdu_storage, 0xa5, sizeof pdu_storage);
+    pdu_alloc_mode = 1;
+    CHECK(le_alloc_rx_pdu(17) == pdu_storage);
+    CHECK(last_alloc_pool == &pools[0] && last_alloc_size == 17);
+    for (unsigned i = 0; i < sizeof pdu_storage; ++i)
+        CHECK(pdu_storage[i] == (i < 17 ? 0 : 0xa5));
+    pdu_alloc_mode = 2;
+    CHECK(le_alloc_rx_pdu(31) == NULL);
+    CHECK(pdu_storage[17] == 0xa5);
+    pdu_alloc_mode = 0;
+    /* IR reloads the pool if a failure hook returns and changes it. */
+    return_from_failure = 1;
+    for (config_asser = 0; config_asser <= 1; ++config_asser) {
+        hdl.rx = NULL;
+        CHECK(hw_dma_alloc(DMA_TYPE_RX, 3) == (u8 *)&pools[0] + 3);
+        CHECK(last_alloc_pool == &pools[0]);
+    }
+    config_asser = 0;
+    hw_dma_debug();
+    CHECK(debug_count == 2 && debug_pools[0] == &pools[0] && debug_pools[1] == &pools[1]);
+    CHECK(hw_dma_remain_len(19) == 26);
+#endif
     return TEST_DONE("btctrler_hw_dma");
 }
 #endif

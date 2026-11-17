@@ -2,8 +2,8 @@
  * sets the FCC test parameters, OCF 2 enables random paging, OCF 0 is a CSR
  * "harmony" query that rewrites bytes of the command in place and returns
  * the whole buffer as a vendor event (byte 1 set to 1).  Other OCFs are not
- * matched (0).  vendor_manager_init, which registers the SDK's handler
- * table, has no caller and is not carried over. */
+ * matched (0). BD19 retains the registration entry point and address data
+ * for whole-member ownership; BR23 keeps its existing used subset. */
 #include <string.h>
 #include "btctrler/glue.h"
 
@@ -84,6 +84,22 @@ VENDOR_CODE int hci_vendor_cmd_handler(u16 opcode, const u8 *data, u32 len)
     return vendor_handler(opcode, (u8 *)data, len);
 }
 
+#ifdef CONFIG_CPU_BD19
+u8 addr_vendor[6] __attribute__((section(".vendor_manager_data"), aligned(1))) =
+    { 0x10, 0x71, 0xda, 0x7d, 0x1a, 0 };
+
+static struct hci_cmd_registration vendor_registration
+    __attribute__((section(".vendor_manager_data"), aligned(4))) = {
+        .vendor = (cmd_handler)vendor_handler,
+    };
+
+void hci_add_cmd_handler(struct hci_cmd_registration *handler);
+VENDOR_CODE void vendor_manager_init(void)
+{
+    hci_add_cmd_handler(&vendor_registration);
+}
+#endif
+
 #ifdef UNITTEST
 #include <stdarg.h>
 #include "test.h"
@@ -94,6 +110,13 @@ void printf_buf(const u8 *buf, int size) { (void)buf; (void)size; }
 static int fcc_calls, rand_calls, completions, events, completion_opcode, completion_status;
 static const u8 *fcc_arg, *rand_arg, *event_data;
 static u32 event_len;
+#ifdef CONFIG_CPU_BD19
+static struct hci_cmd_registration *registered_handler;
+void hci_add_cmd_handler(struct hci_cmd_registration *handler)
+{
+    registered_handler = handler;
+}
+#endif
 void bredr_fcc_set_param(u8 *data) { fcc_arg = data; ++fcc_calls; }
 int link_rand_page_enable(u8 *addr) { rand_arg = addr; ++rand_calls; return 0; }
 int hci_send_event_cmd_complete(int opcode, const char *format, ...)
@@ -116,6 +139,16 @@ static void reset(void)
 }
 int main(void)
 {
+#ifdef CONFIG_CPU_BD19
+    vendor_manager_init();
+    CHECK(registered_handler == &vendor_registration);
+    CHECK(!registered_handler->item.next && !registered_handler->link_control);
+    CHECK(!registered_handler->link_policy && !registered_handler->controller_baseband);
+    CHECK(!registered_handler->informational_parameters && !registered_handler->status_parameters);
+    CHECK(!registered_handler->testing_commands && !registered_handler->le_controller);
+    CHECK(registered_handler->vendor(0xfc03, NULL, 0) == 0);
+    CHECK(!memcmp(addr_vendor, (u8[]){0x10, 0x71, 0xda, 0x7d, 0x1a, 0}, 6));
+#endif
     u8 d[32];
     /* Only OCF 0, 1 and 2 are matched (OCF is the low 10 opcode bits). */
     reset(); memset(d, 0, sizeof(d));

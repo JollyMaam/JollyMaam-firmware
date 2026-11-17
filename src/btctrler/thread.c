@@ -4,6 +4,9 @@
  * that bug rather than supply a timeout the SDK never specified. */
 #include "btctrler/glue.h"
 
+/* Both SDK members use the default text section. */
+#define THREAD_CODE
+
 _Static_assert(offsetof(struct thread, entry) == 0, "thread list prefix");
 #ifndef UNITTEST
 _Static_assert(offsetof(struct thread, owner) == 8, "owner");
@@ -22,7 +25,7 @@ _Static_assert(offsetof(struct thread_owner, resume) == 20, "resume");
 extern BTCTRLER_CONFIG u8 log_tag_const_i_Thread;
 void log_print(int level, const char *tag, const char *format, ...);
 
-static void thread_schedule(struct thread_owner *owner)
+static THREAD_CODE void thread_schedule(struct thread_owner *owner)
 {
     struct list_head *head = &owner->head;
     u8 logging = log_tag_const_i_Thread;
@@ -47,14 +50,20 @@ static void thread_schedule(struct thread_owner *owner)
     owner->suspend(0, (u8)suspend_timeout);
 }
 
-int thread_owner_init(struct thread_owner *owner)
+THREAD_CODE void thread_msg_alloc(void) { }
+THREAD_CODE void thread_msg_free(void) { }
+THREAD_CODE void thread_msg_peek(void) { }
+THREAD_CODE void thread_msg_recv(void) { }
+THREAD_CODE void thread_msg_send(void) { }
+
+THREAD_CODE int thread_owner_init(struct thread_owner *owner)
 {
     owner->head.next = owner->head.prev = &owner->head;
     return 0;
 }
 
-int thread_create(struct thread *th, char *name, void (*fun)(struct thread *),
-                  struct thread_owner *owner)
+THREAD_CODE int thread_create(struct thread *th, char *name, void (*fun)(struct thread *),
+                              struct thread_owner *owner)
 {
     struct list_head *head = &owner->head;
     u32 crc = crc_get_32bit(name);
@@ -86,7 +95,7 @@ int thread_create(struct thread *th, char *name, void (*fun)(struct thread *),
     return 0;
 }
 
-void thread_suspend(struct thread *th, int timeout)
+THREAD_CODE void thread_suspend(struct thread *th, int timeout)
 {
     if (log_tag_const_i_Thread)
         log_print(2, NULL, "[Info]: [Thread]thread_suspend \"%s\"\r\n", th->name);
@@ -96,7 +105,7 @@ void thread_suspend(struct thread *th, int timeout)
     local_irq_enable();
 }
 
-void thread_resume(struct thread *th)
+THREAD_CODE void thread_resume(struct thread *th)
 {
     if (log_tag_const_i_Thread)
         log_print(2, NULL, "[Info]: [Thread]thread_resume \"%s\"\r\n", th->name);
@@ -107,7 +116,7 @@ void thread_resume(struct thread *th)
     th->owner->resume();
 }
 
-int thread_delete(struct thread *th)
+THREAD_CODE int thread_delete(struct thread *th)
 {
     struct thread_owner *owner = th->owner;
     th->entry.next->prev = th->entry.prev;
@@ -116,7 +125,7 @@ int thread_delete(struct thread *th)
     return owner->head.next == &owner->head ? owner->delete(th->priority) : 0;
 }
 
-void thread_run(struct thread_owner *owner) { thread_schedule(owner); }
+THREAD_CODE void thread_run(struct thread_owner *owner) { thread_schedule(owner); }
 
 #ifdef UNITTEST
 #include "test.h"
@@ -179,6 +188,10 @@ int main(void)
     CHECK(a.entry.next == &a.entry && a.entry.prev == &a.entry);
     CHECK(thread_delete(&b) == -7 && deletes == 1 && deleted_priority == 42);
     CHECK(owner.head.next == &owner.head && owner.head.prev == &owner.head);
+#ifdef CONFIG_CPU_BD19
+    thread_msg_alloc(); thread_msg_free(); thread_msg_peek();
+    thread_msg_recv(); thread_msg_send();
+#endif
     return TEST_DONE("btctrler_thread");
 }
 #endif

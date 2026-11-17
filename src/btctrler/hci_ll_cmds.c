@@ -15,6 +15,12 @@ void hci_add_cmd_handler(struct hci_cmd_registration *handler);
 void log_print(int level, const char *file, const char *format, ...);
 extern void ll_read_local_p256_public_key_ir(void) __asm__("ll_read_local_p256_public_key");
 extern void ll_generate_dh_key_ir(const u8 *data, u32 size) __asm__("ll_generate_dh_key");
+/* Both callers forward raw command bytes. BD19's recovered callee prototypes
+ * use struct pointers; keep that spelling difference at this ABI boundary. */
+extern void le_enhanced_receiver_test_handle_ir(u8 *data, u32 size)
+    __asm__("le_enhanced_receiver_test_handle");
+extern void le_enhanced_transmitter_test_handle_ir(u8 *data, u32 size)
+    __asm__("le_enhanced_transmitter_test_handle");
 
 #define HCI_LL_LOG(...) log_print(2, (const char *)0, __VA_ARGS__)
 #define BLE_HCI_CODE __attribute__((section(".ble_hci_code")))
@@ -344,11 +350,15 @@ static BLE_HCI_CODE int le_controller_handler(u16 opcode, const u8 *data, u32 si
             }
             return 1;
         case 51:
-            if (config_btctler_mode & 4) le_enhanced_receiver_test_handle((u8 *)data, size);
+            if (config_btctler_mode & 4) {
+                le_enhanced_receiver_test_handle_ir((u8 *)data, size);
+            }
             (void)hci_send_event_cmd_complete(opcode, "1", 0);
             return 1;
         case 52:
-            if (config_btctler_mode & 4) le_enhanced_transmitter_test_handle((u8 *)data, size);
+            if (config_btctler_mode & 4) {
+                le_enhanced_transmitter_test_handle_ir((u8 *)data, size);
+            }
             (void)hci_send_event_cmd_complete(opcode, "1", 0);
             return 1;
         default:
@@ -427,6 +437,9 @@ static u8 *test_aes_plaintext;
 static int test_ble5_return;
 static int test_order[8];
 static int test_order_count;
+static int test_enhanced_rx_count, test_enhanced_tx_count;
+static void *test_enhanced_rx_data, *test_enhanced_tx_data;
+static u32 test_enhanced_rx_size, test_enhanced_tx_size;
 u64 config_btctler_le_features;
 
 static void capture_event_args(const char *format, va_list args)
@@ -525,6 +538,28 @@ int le_controller_handler_for_ble5(u16 opcode, const u8 *data, u32 size)
     (void)data;
     (void)size;
     return test_ble5_return;
+}
+
+#ifdef CONFIG_CPU_BD19
+void le_enhanced_receiver_test_handle(struct dut_rx_param *data, int size)
+#else
+void le_enhanced_receiver_test_handle(u8 *data, u32 size)
+#endif
+{
+    test_enhanced_rx_count++;
+    test_enhanced_rx_data = data;
+    test_enhanced_rx_size = size;
+}
+
+#ifdef CONFIG_CPU_BD19
+void le_enhanced_transmitter_test_handle(struct dut_tx_param *data, u32 size)
+#else
+void le_enhanced_transmitter_test_handle(u8 *data, u32 size)
+#endif
+{
+    test_enhanced_tx_count++;
+    test_enhanced_tx_data = data;
+    test_enhanced_tx_size = size;
 }
 
 void ll_send_acl_packet(int handle, const u8 *packet, int size)
@@ -665,6 +700,18 @@ int main(void)
     test_ble5_return = 0;
     CHECK(hci_le_controller_cmd_handler(0x2400, random, sizeof(random)) == 0);
     CHECK(test_log_level == 4 && strcmp(test_log_format, "<Error>: [HCI LL]le_hci_command_handler cmd not finish\r\n") == 0);
+
+    /* BD19's SDK header gives struct pointer types for these helpers, but its
+     * member IR forwards the raw bytes and full command length. */
+    const u8 dut_data[7] = { 9, 8, 7, 6, 5, 4, 3 };
+    config_btctler_mode = 4;
+    CHECK(hci_le_controller_cmd_handler(0x2033, dut_data, sizeof(dut_data)) == 1);
+    CHECK(test_enhanced_rx_count == 1 && test_enhanced_rx_data == dut_data);
+    CHECK(test_enhanced_rx_size == sizeof(dut_data));
+    CHECK(hci_le_controller_cmd_handler(0x2034, dut_data, sizeof(dut_data)) == 1);
+    CHECK(test_enhanced_tx_count == 1 && test_enhanced_tx_data == dut_data);
+    CHECK(test_enhanced_tx_size == sizeof(dut_data));
+    config_btctler_mode = 0;
 
     u8 acl[4] = { 0xbc, 0xfa, 0x34, 0x12 };
     CHECK(ll_push_acl_data(acl, 0) == 0);

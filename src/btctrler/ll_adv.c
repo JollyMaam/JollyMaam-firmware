@@ -41,6 +41,12 @@ void ll_adv_timeout_stop(struct le_adv_link *adv_link)
     }
 }
 
+void ble_adv_vendor_not_connect_same_master(u8 enable) LL_CODE;
+void ble_adv_vendor_not_connect_same_master(u8 enable)
+{
+    adv_not_connect_same_master = enable;
+}
+
 void le_ll_adv_addr_process(void *priv, struct ble_rx *rx) LL_CODE;
 void le_ll_adv_addr_process(void *priv, struct ble_rx *rx)
 {
@@ -475,6 +481,9 @@ int main(void)
     CHECK(ll_adv_set_params(params) == 12); /* role gate */
     CHECK(alloc_size == 0);
     config_btctler_le_roles = 4;
+    ble_adv_vendor_not_connect_same_master(0x7f);
+    CHECK(adv_not_connect_same_master == 0x7f);
+    ble_adv_vendor_not_connect_same_master(0);
     CHECK(ll_adv_set_params(params) == 0);
     CHECK(alloc_size == 40 && ll_adv_link_get() == NULL);
     u8 data[1] = {0};

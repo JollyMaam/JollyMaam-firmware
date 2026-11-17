@@ -1,8 +1,6 @@
-/* LE Broadcast Isochronous Stream (BIG/BIS) bookkeeping: handle and object
- * allocation, the data path (codec) setup, the group session key derivation,
- * and the free-BIS count.  The member's init/close/test functions and the
- * access address helper are unreferenced in this firmware and are dropped.
- * SDK quirks kept: BIG and BIS objects come from malloc and are not cleared
+/* LE Broadcast Isochronous Stream (BIG/BIS) bookkeeping: lifecycle, handle
+ * and object allocation, data path setup, test helpers, and group key/address
+ * helpers. SDK quirks kept: BIG and BIS objects come from malloc and are not cleared
  * (callers fill them in); BIS handles are 112 + a bit index of a six-bit map
  * and the exhaustion path asserts and still returns 118; ll_bis_by_handle is a
  * stub that always returns null and ll_bis_setup does nothing; the BIS and
@@ -11,8 +9,10 @@
 #include "btctrler/glue.h"
 
 extern BTCTRLER_CONFIG u8 log_tag_const_e_LL_BIS, log_tag_const_i_LL_BIS;
+extern BTCTRLER_CONFIG u8 log_tag_const_d_LL_BIS;
 extern void log_print(int level, const char *tag, const char *format, ...);
 extern int aes_cmac(u8 *out, const u8 *key, const u8 *msg, int length);
+extern void ll_bis_slave_init(void);
 #ifdef UNITTEST
 #include <stdlib.h>
 void *ll_bis_test_malloc(u32 size);
@@ -68,6 +68,101 @@ static void list_del(struct list_head *entry)
     prev->next = next;
     entry->next = entry;
     entry->prev = entry;
+}
+
+static int list_empty(struct list_head *head)
+{
+    return head->next == head;
+}
+
+static void ll_bis_msg_handler(u8 type, void *msg) LL_CODE;
+static void ll_bis_msg_handler(u8 type, void *msg)
+{
+    (void)type;
+    (void)msg;
+}
+
+void ll_bis_init(void) LL_CODE;
+void ll_bis_init(void)
+{
+    INIT_LIST_HEAD(&ll_iso_hdl.big_head);
+    ll_iso_hdl.big_number = 0;
+    ll_iso_hdl.max_big_number = 2;
+    INIT_LIST_HEAD(&ll_iso_hdl.bis_head);
+    ll_iso_hdl.bis_number = 0;
+    ll_iso_hdl.max_bis_number = 6;
+    ll_bis_slave_init();
+    ll_dispatch_msg_table[9] = ll_bis_msg_handler;
+}
+
+void ll_bis_close(void) LL_CODE;
+void ll_bis_close(void)
+{
+    /* The SDK closes through the BIG list and passes each BIG as a BIS.
+     * Keep this odd cast and its ll_bis_free side effects. */
+    struct list_head *head = &ll_iso_hdl.big_head;
+    if (list_empty(head)) return;
+    struct list_head *node = head->next;
+    while (node != head) {
+        struct list_head *next = node->next;
+        ll_bis_free((le_bis_t *)node);
+        node = next;
+    }
+}
+
+uint32_t lctrComputeBisAccessAddr(uint32_t seedAccAddr, uint8_t bisNum) LL_CODE;
+uint32_t lctrComputeBisAccessAddr(uint32_t seedAccAddr, uint8_t bisNum)
+{
+    uint32_t value = (uint32_t)bisNum * 35u + 42u;
+    uint32_t bit0 = value & 1u;
+    uint32_t bit1 = (value >> 1) & 1u;
+    uint32_t spread =
+        (bit0 << 30) | (value << 31) | (bit0 << 29) | (bit0 << 28) |
+        (bit0 << 27) | (bit0 << 26) | ((value << 18) & 0x01000000u) |
+        ((value << 16) & 0x00200000u) | ((value << 16) & 0x00100000u) |
+        ((value << 15) & 0x00040000u) | ((value << 15) & 0x00020000u) |
+        (bit1 << 25) | (bit1 << 23);
+    return spread ^ seedAccAddr;
+}
+
+uint8_t ll_bis_tx_test(le_bis_t *bis, uint8_t payload_type) LL_CODE;
+uint8_t ll_bis_tx_test(le_bis_t *bis, uint8_t payload_type)
+{
+    (void)payload_type;
+    if (!bis->test.enabled && !bis->test.term) return 0;
+    if (log_tag_const_d_LL_BIS)
+        log_print(0, NULL, "[Debug]: [LL_BIS]Invalid ISO Test state, test mode already enabled\r\n");
+    return 12;
+}
+
+uint8_t ll_bis_rx_test(le_bis_t *bis, uint8_t payload_type) LL_CODE;
+uint8_t ll_bis_rx_test(le_bis_t *bis, uint8_t payload_type)
+{
+    if (!bis->test.enabled && !bis->test.term) {
+        bis->test.enabled = 1;
+        bis->test.term = 0;
+        bis->test.pldType = LL_ISO_TEST_PL_LEN_VAR;
+        bis->test.util.unframed.payloadOffset = payload_type;
+        return 0;
+    }
+    if (log_tag_const_d_LL_BIS)
+        log_print(0, NULL, "[Debug]: [LL_BIS]Invalid ISO Test state, test mode already enabled\r\n");
+    return 12;
+}
+
+uint8_t ll_bis_read_test_counters(le_bis_t *bis, LlIsoTestCtrs_t *counters) LL_CODE;
+uint8_t ll_bis_read_test_counters(le_bis_t *bis, LlIsoTestCtrs_t *counters)
+{
+    if (!bis->test.enabled) {
+        if (log_tag_const_d_LL_BIS)
+            log_print(0, NULL, "[Debug]: [LL_BIS]Invalid ISO Test state, test mode must be enabled\r\n");
+        return 12;
+    }
+    if (bis->test.term != 1) return 0;
+    counters->numSuccess = bis->test.numRxSuccess;
+    counters->numMissed = bis->test.numRxMissed;
+    counters->numFailed = bis->test.numRxFailed;
+    return 0;
 }
 
 le_bis_t *ll_bis_by_handle(uint16_t handle) LL_CODE;
@@ -248,7 +343,12 @@ void ll_bis_setup(le_bis_t *bis, uint32_t seedAccAddr, uint16_t baseCrcInit, uin
 
 ll_iso_handle_t ll_iso_hdl;
 ll_codec_t ll_codec;
+ll_dispatch_msg_t ll_dispatch_msg_table[15];
 u8 log_tag_const_e_LL_BIS, log_tag_const_i_LL_BIS;
+u8 log_tag_const_d_LL_BIS;
+
+static int slave_init_calls;
+void ll_bis_slave_init(void) { slave_init_calls++; }
 
 static int logs_e, logs_i, assert_count, malloc_fail, nfreed;
 static u32 malloc_sizes[16];
@@ -284,6 +384,21 @@ static u8 codec_start(u16 h, PalCodecSreamParam_t *p) { start_handle = h; start_
 
 int main(void)
 {
+    /* Init resets only the BIG/BIS bookkeeping, delegates slave init, and
+     * installs the SDK's intentionally empty message handler in slot 9. */
+    memset(&ll_iso_hdl, 0xa5, sizeof(ll_iso_hdl));
+    memset(ll_dispatch_msg_table, 0, sizeof(ll_dispatch_msg_table));
+    slave_init_calls = 0;
+    ll_bis_init();
+    CHECK(ll_iso_hdl.big_head.next == &ll_iso_hdl.big_head && ll_iso_hdl.big_head.prev == &ll_iso_hdl.big_head);
+    CHECK(ll_iso_hdl.bis_head.next == &ll_iso_hdl.bis_head && ll_iso_hdl.bis_head.prev == &ll_iso_hdl.bis_head);
+    CHECK(ll_iso_hdl.big_number == 0 && ll_iso_hdl.max_big_number == 2);
+    CHECK(ll_iso_hdl.bis_number == 0 && ll_iso_hdl.max_bis_number == 6);
+    CHECK(slave_init_calls == 1 && ll_dispatch_msg_table[9] != NULL);
+    CHECK(lctrComputeBisAccessAddr(0x12345678, 0) == 0x10905678); /* bit1 contributes bits 25 and 23 */
+    CHECK(lctrComputeBisAccessAddr(0x12345678, 1) == 0xef325678);
+    CHECK(lctrComputeBisAccessAddr(0x12345678, 63) == 0xedb65678);
+
     INIT_LIST_HEAD(&ll_iso_hdl.big_head);
     CHECK(ll_bis_by_handle(0x70) == NULL && ll_bis_by_handle(0) == NULL);
 
@@ -353,6 +468,48 @@ int main(void)
     ll_iso_hdl.max_bis_number = 1; ll_iso_hdl.bis_number = 3;
     CHECK(ll_get_number_avail_bis() == 254);       /* unsigned byte wrap */
     ll_iso_hdl.bis_number = 1;
+
+    /* Test helpers retain the SDK's state checks, byte-sized payload offset,
+     * and conditional counter copy. */
+    le_bis_t test_bis = {0};
+    LlIsoTestCtrs_t counters = { 0xaaaaaaaa, 0xbbbbbbbb, 0xcccccccc };
+    CHECK(ll_bis_tx_test(&test_bis, 7) == 0);
+    CHECK(ll_bis_rx_test(&test_bis, 0x23) == 0);
+    CHECK(test_bis.test.enabled == 1 && test_bis.test.term == 0);
+    CHECK((int)test_bis.test.pldType == (int)LL_ISO_TEST_PL_LEN_VAR && test_bis.test.util.unframed.payloadOffset == 0x23);
+    CHECK(ll_bis_tx_test(&test_bis, 9) == 12 && ll_bis_rx_test(&test_bis, 10) == 12);
+    CHECK(ll_bis_read_test_counters(&test_bis, &counters) == 0);
+    CHECK(counters.numSuccess == 0xaaaaaaaa && counters.numMissed == 0xbbbbbbbb && counters.numFailed == 0xcccccccc);
+    test_bis.test.term = 1;
+    test_bis.test.numRxSuccess = 0x12345678;
+    test_bis.test.numRxMissed = 0x87654321;
+    test_bis.test.numRxFailed = 0xdeadbeef;
+    CHECK(ll_bis_read_test_counters(&test_bis, &counters) == 0);
+    CHECK(counters.numSuccess == 0x12345678 && counters.numMissed == 0x87654321 && counters.numFailed == 0xdeadbeef);
+    test_bis.test.enabled = 0;
+    CHECK(ll_bis_read_test_counters(&test_bis, &counters) == 12);
+
+    /* SDK quirk: close walks the BIG list, casts each BIG to BIS and frees it
+     * through ll_bis_free. That decrements counters and follows the pointer
+     * overlapping BIG.bis_head.prev. */
+    le_big_t close_a = {0}, close_b = {0};
+    close_a.bis_head.prev = (struct list_head *)&close_b;
+    close_b.bis_head.prev = (struct list_head *)&close_a;
+    close_a.numBis = 5; close_b.numBis = 6;
+    ll_iso_hdl.bis_number = 2;
+    INIT_LIST_HEAD(&ll_iso_hdl.big_head);
+    close_a.entry.prev = &ll_iso_hdl.big_head; close_a.entry.next = &close_b.entry;
+    close_b.entry.prev = &close_a.entry; close_b.entry.next = &ll_iso_hdl.big_head;
+    ll_iso_hdl.big_head.next = &close_a.entry; ll_iso_hdl.big_head.prev = &close_b.entry;
+    nfreed = 0;
+    ll_bis_close();
+    CHECK(nfreed == 2 && freed[0] == &close_a && freed[1] == &close_b);
+    CHECK(ll_iso_hdl.bis_number == 0 && close_a.numBis == 4 && close_b.numBis == 5);
+    CHECK(ll_iso_hdl.big_head.next == &ll_iso_hdl.big_head && ll_iso_hdl.big_head.prev == &ll_iso_hdl.big_head);
+    /* Restore the later BIG-free test's list. */
+    big1->entry.prev = &ll_iso_hdl.big_head; big1->entry.next = &big2->entry;
+    big2->entry.prev = &big1->entry; big2->entry.next = &ll_iso_hdl.big_head;
+    ll_iso_hdl.big_head.next = &big1->entry; ll_iso_hdl.big_head.prev = &big2->entry;
 
     /* Data path. */
     bisB->path = LL_ISO_DATA_PATH_DISABLED; bisB->handle = 0x71;

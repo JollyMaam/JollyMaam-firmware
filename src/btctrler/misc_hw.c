@@ -1,4 +1,4 @@
-/* CRC wrappers and the BR23 random-byte reader from misc_hw.c. The 32-bit
+/* Shared CRC wrappers and random-byte reader from misc_hw.c. The 32-bit
  * CRC keeps the SDK's unprototyped CRC16 return width and its raw OR. */
 #include "btctrler/glue.h"
 #include <string.h>

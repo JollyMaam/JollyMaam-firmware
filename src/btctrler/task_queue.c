@@ -3,12 +3,20 @@
 #include <string.h>
 #include "btctrler/glue.h"
 
-__attribute__((section(".hci_controller_bss"))) u8 btctrl_qfull_cnt;
+#ifdef CONFIG_CPU_BD19
+#define TASK_CODE __attribute__((section(".hci_controller_code")))
+#define TASK_LOCAL static
+#else
+#define TASK_CODE
+#define TASK_LOCAL
+#endif
+
+TASK_LOCAL __attribute__((section(".hci_controller_bss"))) u8 btctrl_qfull_cnt;
 int btctrl_msg_qfull_hook(u8 count);
 int os_taskq_post_type(const char *name, int type, int argc, int *argv);
 const char *os_current_task(void);
 
-static void btctrl_msg_qfull_handler(void)
+static TASK_CODE void btctrl_msg_qfull_handler(void)
 {
     if (btctrl_qfull_cnt != 255) ++btctrl_qfull_cnt;
     btctrl_msg_qfull_hook(btctrl_qfull_cnt);
@@ -16,7 +24,7 @@ static void btctrl_msg_qfull_handler(void)
 
 /* Connection commands deliberately do not update the queue-full counter.
  * Only link events avoid retrying from the controller task itself. */
-static int post_message(int type, int count, int *words, int report_full, int link_event)
+static TASK_CODE int post_message(int type, int count, int *words, int report_full, int link_event)
 {
     for (;;) {
         int result = os_taskq_post_type("btctrler", type, count, words);
@@ -31,32 +39,43 @@ static int post_message(int type, int count, int *words, int report_full, int li
     }
 }
 
-static int valid_count(int count, int maximum)
+static TASK_CODE int valid_count(int count, int maximum)
 {
     if (count >= 0 && count <= maximum) return 1;
     btctrler_assert_failed("controller message argument count", count);
     return 0;
 }
 
-static int cmd_to_conn(void *conn, int count, va_list args)
+static TASK_CODE int cmd_to_conn(void *conn, int count, va_list args)
 {
     int words[8];
     if (!conn) return -22;
+#ifdef CONFIG_CPU_BD19
+    if ((unsigned)(count + 1) >= 8)
+        btctrler_assert_failed("controller message argument count", count);
+#else
     /* SDK requires count + 1 < 8, leaving one spare slot. */
     if (!valid_count(count, 6)) return -22;
+#endif
     words[0] = (int)(uintptr_t)conn;
+#ifdef CONFIG_CPU_BD19
+    va_list copy; va_copy(copy, args);
+    for (int i = 0; i < count; ++i) words[i + 1] = va_arg(copy, int);
+    va_end(copy); /* SDK ends the local list before queue callbacks. */
+#else
     for (int i = 0; i < count; ++i) words[i + 1] = va_arg(args, int);
+#endif
     return post_message(0x400003, count + 1, words, 0, 0);
 }
 
-static int classic_supported(void)
+static TASK_CODE int classic_supported(void)
 {
     if (config_btctler_modules & 1) return 1;
     btctrler_assert_failed("BT_MODULE_CLASSIC", 0);
     return 0;
 }
 
-int lmp_hci_cmd_to_conn_for_addr(u8 *addr, int argc, ...)
+TASK_CODE int lmp_hci_cmd_to_conn_for_addr(u8 *addr, int argc, ...)
 {
     if (!classic_supported()) return 0;
     struct lmp_connection *conn = lmp_conn_for_address(addr);
@@ -65,7 +84,7 @@ int lmp_hci_cmd_to_conn_for_addr(u8 *addr, int argc, ...)
     va_end(args);
     return result;
 }
-int lmp_hci_cmd_to_conn_for_handle(u16 handle, int argc, ...)
+TASK_CODE int lmp_hci_cmd_to_conn_for_handle(u16 handle, int argc, ...)
 {
     if (!classic_supported()) return 0;
     struct lmp_connection *conn = lmp_conn_for_handle(handle);
@@ -74,7 +93,7 @@ int lmp_hci_cmd_to_conn_for_handle(u16 handle, int argc, ...)
     va_end(args);
     return result;
 }
-int lmp_hci_cmd_to_conn(void *conn, int argc, ...)
+TASK_CODE int lmp_hci_cmd_to_conn(void *conn, int argc, ...)
 {
     if (!classic_supported()) return 0;
     va_list args; va_start(args, argc);
@@ -82,18 +101,30 @@ int lmp_hci_cmd_to_conn(void *conn, int argc, ...)
     va_end(args);
     return result;
 }
-int btctrler_hci_cmd_to_task(int cmd, int argc, ...)
+TASK_CODE int btctrler_hci_cmd_to_task(int cmd, int argc, ...)
 {
     int words[16];
+#ifdef CONFIG_CPU_BD19
+    if ((u32)argc >= 16)
+        btctrler_assert_failed("controller message argument count", argc);
+#else
     if (!valid_count(argc, 15)) return -22;
+#endif
     va_list args; va_start(args, argc);
     for (int i = 0; i < argc; ++i) words[i] = va_arg(args, int);
     va_end(args);
     return post_message(cmd, argc, words, 1, 0);
 }
-int bredr_link_event(void *link, int argc, ...)
+TASK_CODE int bredr_link_event(void *link, int argc, ...)
 {
     int words[4];
+#ifdef CONFIG_CPU_BD19
+    words[0] = (int)(uintptr_t)link;
+    va_list args; va_start(args, argc);
+    for (int i = 1; i <= argc; ++i) words[i] = va_arg(args, int);
+    va_end(args);
+    return post_message(0x400001, argc + 1, words, 1, 1);
+#else
     /* SDK had no bound check on this four-word message. */
     if (!valid_count(argc, 3)) return -22;
     words[0] = (int)(uintptr_t)link;
@@ -101,6 +132,7 @@ int bredr_link_event(void *link, int argc, ...)
     for (int i = 0; i < argc; ++i) words[i + 1] = va_arg(args, int);
     va_end(args);
     return post_message(0x400001, argc + 1, words, 1, 1);
+#endif
 }
 
 #ifdef UNITTEST
@@ -127,13 +159,16 @@ void os_time_dly(int ticks) { assert(ticks == 2); ++delays; }
 int btctrl_msg_qfull_hook(u8 count) { ++hooks; last_hook = count; return 1; }
 int os_taskq_post_type(const char *name, int type, int argc, int *argv)
 {
-    assert(!strcmp(name, "btctrler")); assert(argc >= 0 && argc <= 16);
+    assert(!strcmp(name, "btctrler")); assert(argc <= 16);
+#ifndef CONFIG_CPU_BD19
+    assert(argc >= 0);
+#endif
     if (posts) {
         assert(last_type == type && last_count == argc);
-        assert(!memcmp(last_words, argv, argc * sizeof(int)));
+        if (argc > 0) assert(!memcmp(last_words, argv, argc * sizeof(int)));
     }
     ++posts; last_type = type; last_count = argc;
-    memcpy(last_words, argv, argc * sizeof(int));
+    if (argc > 0) memcpy(last_words, argv, argc * sizeof(int));
     if (full_remaining) { --full_remaining; return 21; }
     return final_result;
 }
@@ -169,6 +204,7 @@ int main(void)
         assert(lmp_hci_cmd_to_conn(&connection, 0) == 0);
         assert(posts == expected * 3 && lookups == expected * 2 && assertions == !expected * 3);
     }
+#ifndef CONFIG_CPU_BD19
     const int invalid[] = { INT_MIN, -2, -1, 16, INT_MAX };
     for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i) {
         reset(); int n = invalid[i];
@@ -185,10 +221,24 @@ int main(void)
     for (int n = 4; n <= 15; ++n) {
         reset(); assert(bredr_link_event(&connection, n) == -22 && !posts);
     }
+#endif
     reset(); assert(lmp_hci_cmd_to_conn(&connection, 6, 1, 2, 3, 4, 5, 6) == 0);
     assert(last_count == 7 && last_words[6] == 6);
     reset(); assert(btctrler_hci_cmd_to_task(77, 15, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) == 0);
     assert(last_type == 77 && last_count == 15 && last_words[14] == 15);
+#ifdef CONFIG_CPU_BD19
+    const int negative[] = {-1, INT_MIN};
+    for (unsigned i = 0; i < sizeof(negative) / sizeof(*negative); ++i) {
+        reset(); assert(!btctrler_hci_cmd_to_task(77, negative[i]));
+        assert(assertions == 1 && posts == 1 && last_count == negative[i]);
+    }
+    reset();
+    assert(lmp_hci_cmd_to_conn(&connection, 7, 1, 2, 3, 4, 5, 6, 7) == 0);
+    assert(assertions == 1 && last_count == 8 && last_words[7] == 7);
+    reset();
+    assert(btctrler_hci_cmd_to_task(77, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16) == 0);
+    assert(assertions == 1 && last_type == 77 && last_count == 16 && last_words[15] == 16);
+#endif
     reset(); assert(btctrler_hci_cmd_to_task(77, 0) == 0 && last_count == 0);
     reset(); assert(bredr_link_event(NULL, 3, 1, 2, 3) == 0);
     assert(last_type == 0x400001 && last_count == 4 && last_words[0] == 0 && last_words[3] == 3);
