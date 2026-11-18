@@ -49,6 +49,15 @@ static H4_CONTROLLER_CODE int h4_controller_send_packet(int type, const u8 *pack
     return 0;
 }
 
+#if BTCTRLERMOD
+/* Our change: the host has room again (glue.h); the link layer's thread takes
+ * the LE data that waits (bd19/RF_ble.c).  Classic data is never held here. */
+void btctrlermod_host_ready(void)
+{
+    if (config_btctler_modules & 2) ll_thread_resume();
+}
+#endif
+
 static const hci_transport_t hci_transport_controller
     __attribute__((section(".hci_controller_const"), aligned(4))) = {
     .name = "H4_Controller",

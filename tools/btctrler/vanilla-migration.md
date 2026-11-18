@@ -59,10 +59,19 @@ under `/work/analysis/btctrler-vanilla-migration/` in this environment.
 
 `main` is merged in (its `7e90217` squash of `44d0073` is recorded as merged).
 The controller lives at `src/platform/jieli/btctrler/`; `tools/btctrler/vanilla.mk`
-uses `src/make/jieli.mk`'s chip toolchains. main's app still links the SDK
-`btctrler.a` for BD19 (Nova 2 Lite dongle). main's own controller changes
-are under `BTCTRLERMOD` (glue.h): on for BR23, off for BD19, whose objects stay
-as audited until those changes are tested on its hardware.
+uses `src/make/jieli.mk`'s chip toolchains.
+
+## BD19 in the app
+
+The Nova 2 Lite dongle links our controller (`JIELI_BD19_CONTROLLER_SOURCES`
+in jieli.mk), no `btctrler.a`: the sources of the members its link took
+from the archive.  The other members (TWS, UART/USB H4, codecs) build only
+for the audit; linked, their `.tws_func_stub` registrations (KEEP) cost the
+heap.  Our controller changes are under `BTCTRLERMOD` (glue.h), on in the app
+on both chips and 0 in the BD19 audit build.  On BD19 they include LE host
+flow control (bd19/RF_ble.c, bd19/h4_controller_interface.c; Classic ACL
+still drops when the queue is full) but not the start-up priority drop (its
+kernel has no vTaskPrioritySet), the BR23 LE TX slot rework (961be11) or QoS.
 
 ## Dependencies and validation
 
@@ -80,13 +89,9 @@ PATH=/work/bin:$PATH python3 tools/btctrler/check_uecc.py
 ```
 
 `controller-test` runs the BD19 builds of the controller tests; `test` (main's
-host tests) runs the BR23 builds. No firmware with the BD19 controller has
-been flashed or tested on hardware.
+host tests) runs the BR23 builds.
 
 ## Next work
 
-To run our controller on BD19 in the app: drop `btctrler.a` from
-`JIELI_BD19_ARCHIVES`, add the bd19.json sources to the BD19 images, and test
-on the dongle. Then decide per `BTCTRLERMOD` change whether BD19 takes it.
 Further consolidation means the dedicated `bd19/` sources whose BR23
 counterparts are close (see the reuse census); keep the BR23 image unchanged.

@@ -124,8 +124,8 @@ Generated layout success does not establish runtime behavior.
 App changes since the original BR23 decompilation include AFH fixes,
 LL_VERSION_IND handling, role-switch dispatch/recovery, page-timeout fixes,
 cooperative scheduler initialization, sniff timing, framing checks, and
-`btctrlermod_` timing/QoS hooks. Preserve them on BR23. In a source both chips
-compile, such a change sits under `#if BTCTRLERMOD` (glue.h: 1 for BR23, 0 for
-BD19), so BD19 objects stay as audited. Audit `git log` and the affected source
-before turning one on for BD19; record BD19 decisions in its review notes. The original decompilation's object history and fingerprints
+`btctrlermod_` timing/QoS hooks. Preserve them. In a source both chips compile,
+or in a BD19 source, such a change sits under `#if BTCTRLERMOD` (glue.h): 1 in
+the app on both chips; the BD19 audit build (vanilla.mk) sets 0, so its objects
+still compare with the SDK. The original decompilation's object history and fingerprints
 are on `btctrler-decompiled`, not the implementation branch's build rules.

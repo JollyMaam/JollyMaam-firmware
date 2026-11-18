@@ -12,12 +12,10 @@
 #endif
 #define BTCTRLER_CONFIG_ASSER BTCTRLER_CONFIG
 
-/* Our changes to the SDK controller ("Our change:", btctrlermod_*) are on for
- * BR23, which the app runs. BD19 keeps the SDK's behaviour until they are
- * tested on its hardware. */
-#ifdef CONFIG_CPU_BD19
-#define BTCTRLERMOD 0
-#else
+/* Our changes to the SDK controller ("Our change:", btctrlermod_*), on in
+ * the app on both chips.  The BD19 audit build (tools/btctrler/vanilla.mk)
+ * sets 0: the SDK's behaviour, which its objects are compared with. */
+#ifndef BTCTRLERMOD
 #define BTCTRLERMOD 1
 #endif
 
@@ -103,5 +101,11 @@ void btctrlermod_air_rx(void);
 int btctrlermod_host_acl_room(void);
 void btctrlermod_host_ready(void);
 void *btctrlermod_dma_first(struct _dma_head *head);   /* hw_dma.c: the oldest, not taken */
+
+/* link_layer.c: our own LL_VERSION_IND exchange is under way (ll_slave.c). */
+u8 ll_version_exchange_pending(struct le_link *link);
+/* platform_jieli.c (BR23): around hci_controller_init (task_dispatch.c). */
+void btctrlermod_init_begin(void);
+void btctrlermod_init_end(void);
 
 #endif

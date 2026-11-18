@@ -134,10 +134,11 @@ n2/dongle-updater/sdk.ld_sources := $(JIELI_BD19_LINKER_SCRIPT)
 n2/dongle-updater/sdk.ld_cppflags := $(N2DU_CPPFLAGS) -DLD_UPDATER
 n2/dongle-updater/sdk.ld_compile.c = $(jieli-cpp)
 
-# No Bluetooth: no BTstack (and the BD19 never has our controller).
+# No Bluetooth: no BTstack, no controller but its version record (startup
+# keeps it, as it did from btctrler.a).
 TARGETS += n2/dongle-updater/app.elf
 n2/dongle-updater/app.elf_toolchain := JIELI_BD19_
-n2/dongle-updater/app.elf_sources := $(N2DU_SOURCES) $(JIELI_BD19_SDK_SOURCES)
+n2/dongle-updater/app.elf_sources := $(N2DU_SOURCES) $(JIELI_BD19_SDK_SOURCES) src/platform/jieli/btctrler/version.c
 n2/dongle-updater/app.elf_cppflags := $(N2DU_CPPFLAGS)
 n2/dongle-updater/app.elf_ldflags := -T$(O)/n2/dongle-updater/sdk.ld -M=$(O)/n2/dongle-updater/app.map
 n2/dongle-updater/app.elf_deps := $(O)/n2/dongle-updater/sdk.ld $(JIELI_BD19_ARCHIVES)
@@ -153,8 +154,7 @@ N2D_FLAGS := -DCONFIG_FLASH_SIZE=0x80000 -DBOARD_PID=\"AC632N_TRANS\" $(N2D_DEFI
 	$(BUILD_ID_CPPFLAGS)
 N2D_CPPFLAGS := $(N2D_FLAGS) $(SRC_INCLUDES) -iquote src/boards/gamesir-cyclone-2 $(JIELI_BD19_BOARD_INCLUDES)
 
-# The Cyclone 2 dongle's, with this board's file, no audio and the SDK's
-# controller (so no QoS).
+# The Cyclone 2 dongle's, with this board's file, no audio and no QoS.
 N2D_SOURCES :=
 N2D_SOURCES += src/boards/gamesir-nova-2-lite/board_dongle.c
 N2D_SOURCES += src/boards/gamesir-cyclone-2/dongle.c
@@ -184,11 +184,12 @@ $(O)/n2/dongle/isd_config.ini: private jieli_pid := AC632N_TRANS
 
 TARGETS += n2/dongle/app.elf
 n2/dongle/app.elf_toolchain := JIELI_BD19_
-n2/dongle/app.elf_sources := $(N2D_SOURCES) $(JIELI_BD19_SDK_SOURCES) $(BTSTACK_SOURCES)
+n2/dongle/app.elf_sources := $(N2D_SOURCES) $(JIELI_BD19_CONTROLLER_SOURCES) $(JIELI_BD19_SDK_SOURCES) $(BTSTACK_SOURCES)
 n2/dongle/app.elf_cppflags := $(N2D_CPPFLAGS)
 n2/dongle/app.elf_ldflags := -T$(O)/n2/dongle/sdk.ld -M=$(O)/n2/dongle/app.map
 n2/dongle/app.elf_deps := $(O)/n2/dongle/sdk.ld $(JIELI_BD19_ARCHIVES)
 n2/dongle/app.elf_order_deps := $(BUILD_ID_H)
+$(call lib-objs,n2/dongle/app.elf,$(JIELI_BD19_CONTROLLER_SOURCES)): obj_cflags += $(JIELI_BD19_CONTROLLER_CFLAGS)
 $(call lib-objs,n2/dongle/app.elf,$(BTSTACK_SOURCES) $(BTSTACK_USERS)): obj_cppflags += $(BTSTACK_RENAMES)
 
 TARGETS += n2/dongle/app.bin

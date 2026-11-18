@@ -1271,10 +1271,44 @@ static void RF_BLE_CODE le_hw_send_packet_high(struct ble_hw *ble_hw, void (*cal
     } else ble_latency_manualhold(ble_hw);
 }
 
+#if BTCTRLERMOD
+/* Our change (BR23's RF_ble.c has the same): links whose oldest received
+ * data waits for room in the host (btctrlermod_host_acl_room), a bit per
+ * HW_ID.  It stays queued, still encrypted (decrypting is done once, as it
+ * is taken), and the link reports nothing to take (ioctrl 19), so the link
+ * layer's thread sleeps until the host wakes it. */
+static u32 rx_held;
+
+static u8 RF_BLE_CODE __ble_rx_buf_process_conn(struct ble4_hw *hw, int index, int ok);
+
+/* Our change: on a connection, a receive buffer the radio went without (the
+ * pool was empty in the receive interrupt) as soon as one is free.  Without
+ * it the radio receives nothing more, so no interrupt comes to try again. */
+static void RF_BLE_CODE rx_rearm(struct ble4_hw *hw)
+{
+    if ((hw->state & (u8)~1u) != 6) return;
+    local_irq_disable();
+    for (int i = 0; i < 2; i++)
+        if (!hw->rx[i]) __ble_rx_buf_process_conn(hw, i, 1);
+    local_irq_enable();
+}
+#endif
+
 static void RF_BLE_CODE le_hw_upload_data(struct ble_hw *ble_hw, void (*rx_handler)(void *, struct ble_rx *))
 {
     struct ble4_hw *hw = ble_hw->ble4_hw;
+#if BTCTRLERMOD
+    struct ble_rx *rx = btctrlermod_dma_first(&hw->rx_head);
+    u32 bit = 1u << HW_ID(ble_hw);
+    if (rx && config_btctler_hci_standard && (rx->llid == 1 || rx->llid == 2) && !btctrlermod_host_acl_room()) {
+        rx_held |= bit;
+        return;
+    }
+    rx_held &= ~bit;
+    rx = (struct ble_rx *)hw_dma_pop(&hw->rx_head);
+#else
     struct ble_rx *rx = (struct ble_rx *)hw_dma_pop(&hw->rx_head);
+#endif
     if (!rx) return;
     ble_hw_decrypt(hw, rx);
     if ((config_btctler_le_roles & 8) && hw->state == 1 && hw->scan_rx_packets)
@@ -1282,7 +1316,16 @@ static void RF_BLE_CODE le_hw_upload_data(struct ble_hw *ble_hw, void (*rx_handl
     if (config_btctler_hci_standard || (rx->llid != 1 && rx->llid != 2)) {
         rx_handler(hw->priv, rx);
         hw_dma_free(rx);
+#if BTCTRLERMOD
+        rx_rearm(hw);
+#endif
     } else rx_handler(hw->priv, rx);
+#if BTCTRLERMOD
+    /* Our change: one packet a pass, and the link layer's thread runs a pass
+     * per message; a starved radio (rx_rearm) brings none, so ask for the
+     * next pass while more wait. */
+    if (!hw_dma_empty(&hw->rx_head)) ll_thread_resume();
+#endif
 }
 
 static int RF_BLE_CODE le_hw_is_init_enter_conn(struct ble_hw *hw)
@@ -2502,7 +2545,11 @@ static void RF_BLE_CODE le_hw_ioctrl(struct ble_hw *hw, int ctrl, ...)
     case 15: hw4->tx_octets = (u16)va_arg(ap, int); break;
     case 17: hw4->tx_acl_block = (u8)va_arg(ap, int); break;
     case 18: hw4->tx_acl_c_block = (u8)va_arg(ap, int); break;
+#if BTCTRLERMOD
+    case 19: *va_arg(ap, int *) = hw_dma_empty(&hw4->rx_head) || (rx_held & (1u << HW_ID(hw))); break;
+#else
     case 19: *va_arg(ap, int *) = hw_dma_empty(&hw4->rx_head); break;
+#endif
     case 20: {
         u16 index = (u16)va_arg(ap, int);
         if (*(volatile u32 *)1867776 != 0) {
@@ -2627,8 +2674,24 @@ int ble_master_multilink_schedule(struct ble_hw *hw, u32 slots, u8 type, u8 numb
 void hw_dma_free(void *p) { (void)p; ++frees; }
 void hw_dma_push(struct _dma_head *head, struct _dma *p)
 { (void)head; (void)p; ++queues; }
+static int dma_empty;
 int hw_dma_empty(struct _dma_head *head)
-{ (void)head; ++empty_calls; return 0; }
+{ (void)head; ++empty_calls; return dma_empty; }
+#if BTCTRLERMOD
+int config_btctler_hci_standard = 1;
+static struct ble_rx *rx_queue[4];
+static unsigned rx_queued, rx_popped, host_asks, uploads, ll_resumes;
+static int host_room = 1;
+static void *test_rx_buffer;
+void *hw_dma_pop(struct _dma_head *head)
+{ (void)head; return rx_popped < rx_queued ? rx_queue[rx_popped++] : NULL; }
+void *btctrlermod_dma_first(struct _dma_head *head)
+{ (void)head; return rx_popped < rx_queued ? rx_queue[rx_popped] : NULL; }
+int btctrlermod_host_acl_room(void) { ++host_asks; return host_room; }
+void ll_thread_resume(void) { ++ll_resumes; }
+void *hw_dma_alloc(u8 type, u32 size) { (void)type; (void)size; return test_rx_buffer; }
+static void test_upload(void *priv, struct ble_rx *rx) { (void)priv; (void)rx; ++uploads; }
+#endif
 s8 ble_analog_get_rssi(struct ble_param *fp) { (void)fp; return -42; }
 void record_rx_chsel_algorithm(struct ble_rx *rx, u8 algorithm)
 {
@@ -2862,6 +2925,46 @@ int main(void)
     }
     CHECK(event_power_offs == 2);
     event_fixture_active = 0;
+#if BTCTRLERMOD
+    /* Host flow control: data the host has no room for stays queued, and
+     * the link reports nothing to take until there is room. */
+    {
+        static struct ble_rx held_rx;
+        static struct { struct ble_baseband_layer_handle b; u32 storage[80]; } test_bb;
+        unsigned freed = frees;
+        int empty = 0;
+
+        frames[0].state = 0;
+        held_rx.llid = 2; held_rx.len = 5;
+        rx_queue[0] = &held_rx; rx_queued = 1; rx_popped = 0; host_room = 0;
+        le_hw_upload_data(&instances[0], test_upload);
+        le_hw_ioctrl(&instances[0], 19, &empty);
+        CHECK(!uploads && rx_popped == 0 && empty && host_asks == 1 && frees == freed && !ll_resumes);
+        host_room = 1; dma_empty = 1;
+        le_hw_upload_data(&instances[0], test_upload);
+        empty = 0;
+        le_hw_ioctrl(&instances[0], 19, &empty);
+        CHECK(uploads == 1 && rx_popped == 1 && empty && frees == freed + 1 && !ll_resumes);
+        /* LL control PDUs do not ask */
+        held_rx.llid = 3; rx_queue[1] = &held_rx; rx_queued = 2; host_room = 0;
+        le_hw_upload_data(&instances[0], test_upload);
+        CHECK(uploads == 2 && host_asks == 2 && !ll_resumes);
+        /* On a connection, a buffer the radio went without is given back,
+         * and the next pass is asked for while more wait */
+        struct ble_baseband_layer_handle *was = bb_hdl;
+        bb_hdl = &test_bb.b; test_bb.b.hw_base.hw = instances;
+        test_rx_buffer = test_bb.storage;
+        frames[0].state = 6; frames[0].rx[0] = NULL; frames[0].rx[1] = &held_rx;
+        frames[0].ble_fp.RXBUF0CNTL = 1;
+        rx_queue[2] = rx_queue[3] = &held_rx; rx_queued = 4; dma_empty = 0;
+        le_hw_upload_data(&instances[0], test_upload);
+        CHECK(uploads == 3 && frames[0].rx[0] == test_rx_buffer && frames[0].rx[1] == &held_rx);
+        CHECK(ll_resumes == 1);
+        CHECK(!(frames[0].ble_fp.RXBUF0CNTL & 1) &&
+              frames[0].ble_fp.RXPTR0 == (s16)PHY_TO_BLE(((struct ble_rx *)test_rx_buffer)->data));
+        bb_hdl = was; frames[0].state = 0;
+    }
+#endif
     munmap(regs, 4096);
     return TEST_DONE("btctrler_RF_ble");
 }

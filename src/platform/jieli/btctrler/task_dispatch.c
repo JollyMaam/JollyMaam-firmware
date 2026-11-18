@@ -15,9 +15,8 @@ int os_taskq_post_type(const char *name, int type, int argc, int *argv);
 extern BTCTRLER_CONFIG int config_btctler_le_roles;
 /* Our change: hci_controller_init() spends about 250 ms busy in the radio's
  * calibration (bt_rf_init); the platform runs it below the app's own tasks
- * and puts this task back after. BR23 only: BD19's task is in task_lifecycle.c. */
-void btctrlermod_init_begin(void);
-void btctrlermod_init_end(void);
+ * and puts this task back after. BR23 only: BD19's task is in task_lifecycle.c,
+ * and its kernel has no vTaskPrioritySet. */
 #if !defined(CONFIG_CPU_BD19) || defined(UNITTEST)
 TASK_LOCAL __attribute__((section(".hci_controller_data")))
 void (*bt_testbox_update_msg_handle)(int);

@@ -10,7 +10,8 @@
 # JIELI_BD19_) is the two together.  A unit is added, never filtered.
 #   JIELI_BR23  AC635N (Cyclone 2 pad and dongle, Nova 2 Lite pad): pi32v2,
 #               our controller (src/platform/jieli/btctrler/)
-#   JIELI_BD19  AC632N (Nova 2 Lite dongle): q32s, the SDK's controller
+#   JIELI_BD19  AC632N (Nova 2 Lite dongle): q32s, our controller too
+#               (src/platform/jieli/btctrler/, tools/btctrler/bd19.json)
 
 JIELI_SDK := external/jieli-fw-AC63_BT_SDK
 JIELI_TOOLCHAINS := external/toolchains/jieli-linux-toolchains-20250324.1
@@ -222,7 +223,6 @@ JIELI_BR23_BOARD_INCLUDES := $(JIELI_COMMON_INCLUDES) $(JIELI_BR23_INCLUDES)
 JIELI_BR23_SDK_SOURCES := $(addprefix $(JIELI_SDK)/,$(JIELI_BR23_SDK_USED))
 
 # --- BD19 (AC632N) ------------------------------------------------------------
-# It links the SDK's controller (btctrler.a), not ours.
 
 JIELI_BD19_TOOLS := $(JIELI_TOOLCHAINS)/q32s/bin
 JIELI_BD19_CC := $(JIELI_BD19_TOOLS)/clang
@@ -258,8 +258,6 @@ JIELI_BD19_ARCHIVES += $(JIELI_SDK)/cpu/bd19/liba/cpu.a
 JIELI_BD19_ARCHIVES += $(JIELI_SDK)/cpu/bd19/liba/system.a
 JIELI_BD19_ARCHIVES += $(JIELI_SDK)/cpu/bd19/liba/update.a
 JIELI_BD19_ARCHIVES += $(JIELI_SDK)/cpu/bd19/liba/media.a
-# The SDK's controller.
-JIELI_BD19_ARCHIVES += $(JIELI_SDK)/cpu/bd19/liba/btctrler.a
 
 JIELI_BD19_RUNTIME_LIBS :=
 JIELI_BD19_RUNTIME_LIBS += $(JIELI_TOOLCHAINS)/q32s/lib/libm.a
@@ -438,6 +436,109 @@ JIELI_BTCTRLER_TWS += src/platform/jieli/btctrler/tws_task.c
 JIELI_BTCTRLER_TWS += src/platform/jieli/btctrler/tws_tx_sync.c
 JIELI_BR23_CONTROLLER_SOURCES := $(JIELI_BTCTRLER_CORE) $(JIELI_BTCTRLER_LE) $(JIELI_BTCTRLER_BREDR) $(JIELI_BTCTRLER_TWS)
 JIELI_BR23_CONTROLLER_SOURCES += src/platform/jieli/btstack_qos_jieli.c
+
+# BD19: our controller (tools/btctrler/bd19.json owns every member; shared
+# sources with CONFIG_CPU_BD19, bd19/ for the chip's own): the sources of the
+# members the dongle's link took from the SDK's btctrler.a.  The rest (TWS,
+# the UART and USB H4 transports, codecs) only build for the audit
+# (tools/btctrler/vanilla.mk); here their registration tables (KEEP) would
+# cost the heap.  Each source builds with JIELI_BD19_CONTROLLER_CFLAGS.
+JIELI_BD19_CONTROLLER_CFLAGS := -Werror=implicit-function-declaration
+JIELI_BD19_CONTROLLER_SOURCES :=
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/aes128.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/aes_hw.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/authentication.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/RF.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/RF_ble.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/RF_ble5.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/analog.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/analog_ble.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/assert.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/audio_codec.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/bredr_dut.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/bredr_fcc.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/bredr_frame.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/bredr_link.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/bredr_low_power.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/bredr_slot_timer.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/direct_test_dut.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/h4_controller_interface.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/hci_controller.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/ll_bis_slave.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/ll_cis_master.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/ll_cis_slave.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/ll_msg.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/lmp/lmp.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/lmp_hci_baseband.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/lmp_hci_cmd_parser.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_data_forwarding.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_esco.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_event.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_link.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_lmp_sync.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_media_sync.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_pair.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_pair_api.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_power_balance.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_schedule.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_sniff.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_sync_call.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bd19/tws_task.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/bredr_utils.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/btagc.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/btcontroller_heap.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/btcontroller_util.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/btencry_task.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/device_manager.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/hci_ll.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/hci_ll_5_cmds.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/hci_ll_cmds.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/hw_dma.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/lbuf.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/le_low_power.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/link_bulk.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/link_layer.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/link_task.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_adv.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_afh.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_bis.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_cis.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_common_iso.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_data_extension.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_events.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_ext_adv.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_ext_init.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_ext_scan.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_extended_advertising.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_init.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_keys.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_master.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_multiple_phys.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_periodic_advertising.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_resolve_list.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_scan.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_slave.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_vendor.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_white_list.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/ll_wifi_detect.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/lmp_acl_tx.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/lmp_control_tx.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/lmp_hci_control.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/lmp_hci_pairing.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/lmp_hci_procedures.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/lmp_hci_settings.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/lmp_utils.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/misc_hw.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/multilink_schedule.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/sys_timer.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/task_dispatch.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/task_lifecycle.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/task_queue.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/thread.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/tws_ble_link.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/vendor_manager.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/version.c
+JIELI_BD19_CONTROLLER_SOURCES += src/platform/jieli/btctrler/vsprintf.c
 
 # --- Target types ---------------------------------------------------------------
 # Each is per chip (jieli-br23-..., jieli-bd19-...), from one definition.

@@ -10,7 +10,8 @@ VANILLA_BD19_SOURCES := $(shell $(PYTHON) tools/controller.py sources)
 VANILLA_BD19_OBJECTS := $(patsubst %.c,build/vanilla-bd19/%.o,$(VANILLA_BD19_SOURCES) $(VANILLA_DIR)/bd19/assert.c)
 VANILLA_BR23_OBJECTS := $(patsubst %.c,build/vanilla-br23/%.o,$(wildcard $(VANILLA_DIR)/*.c))
 VANILLA_BD19_FLAGS := $(JIELI_BD19_CFLAGS)
-VANILLA_BD19_DEFINES := $(JIELI_BD19_CPPFLAGS)
+# BTCTRLERMOD=0: the SDK behaviour the audit compares with (glue.h).
+VANILLA_BD19_DEFINES := $(JIELI_BD19_CPPFLAGS) -DBTCTRLERMOD=0
 VANILLA_BD19_INCLUDES := $(SRC_INCLUDES) $(JIELI_BD19_BOARD_INCLUDES)
 VANILLA_BR23_COMPILE := $(JIELI_BR23_CC) $(JIELI_BR23_CFLAGS) $(JIELI_BR23_CPPFLAGS) -Werror=implicit-function-declaration $(SRC_INCLUDES) $(JIELI_BR23_BOARD_INCLUDES)
 VANILLA_BD19_TEST_SOURCES := $(shell $(PYTHON) -c 'from pathlib import Path; from tools.btctrler.controller import selected_sources; print(" ".join(s for s in selected_sources() if "ifdef UNITTEST" in Path(s).read_text()))')

@@ -161,11 +161,12 @@ static void dropped(u8 type, const u8 *packet, u16 size)
  * event always finds one.  Refused, the controller keeps the packet (LE: the
  * radio stops taking more once its buffers run out, so the peer resends) and
  * rx_process() wakes it once the queue is drained.  Every refusal leaves the
- * queue nearly full, so rx_process() runs after it.  The BD19's library
- * controller has no such path: a full queue drops there. */
+ * queue nearly full, so rx_process() runs after it.  The BD19 holds back LE
+ * data only: its Classic ACL still drops when the queue is full. */
+#ifndef EVENT_ROOM                     /* a test build may raise it to hold often */
 #define EVENT_ROOM 2
+#endif
 
-#ifndef CONFIG_CPU_BD19
 int btctrlermod_host_acl_room(void)
 {
     if (!rx_active || hciq_free() > EVENT_ROOM) return 1;   /* closed: handed over and dropped */
@@ -173,7 +174,6 @@ int btctrlermod_host_acl_room(void)
     hciq_held();
     return 0;
 }
-#endif
 
 /* The receive queue's drops and high-water mark since boot. */
 void hci_jieli_rx_stats(struct hci_queue_stats *out)
@@ -459,12 +459,10 @@ static void rx_process(btstack_data_source_t *ds, btstack_data_source_callback_t
         host_handler(type, data, size);
         hciq_pop();
     }
-#ifndef CONFIG_CPU_BD19
     if (held) {
         held = 0;
         btctrlermod_host_ready();
     }
-#endif
 }
 
 static void transport_init(const void *config)
