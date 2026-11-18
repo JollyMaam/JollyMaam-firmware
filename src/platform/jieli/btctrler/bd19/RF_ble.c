@@ -1279,17 +1279,25 @@ static void RF_BLE_CODE le_hw_send_packet_high(struct ble_hw *ble_hw, void (*cal
  * layer's thread sleeps until the host wakes it. */
 static u32 rx_held;
 
+/* Our change: links held since their radio last had both receive buffers;
+ * only those are rearmed (rx_rearm), so a link that was never held keeps the
+ * SDK's receive path. */
+static u32 rx_starved;
+
 static u8 RF_BLE_CODE __ble_rx_buf_process_conn(struct ble4_hw *hw, int index, int ok);
 
 /* Our change: on a connection, a receive buffer the radio went without (the
  * pool was empty in the receive interrupt) as soon as one is free.  Without
- * it the radio receives nothing more, so no interrupt comes to try again. */
-static void RF_BLE_CODE rx_rearm(struct ble4_hw *hw)
+ * it the radio receives nothing more, so no interrupt comes to try again.
+ * Done only for a link that was held, until both buffers are armed. */
+static void RF_BLE_CODE rx_rearm(struct ble4_hw *hw, u32 bit)
 {
-    if ((hw->state & (u8)~1u) != 6) return;
+    if (!(rx_starved & bit)) return;
+    if ((hw->state & (u8)~1u) != 6) { rx_starved &= ~bit; return; }
     local_irq_disable();
     for (int i = 0; i < 2; i++)
         if (!hw->rx[i]) __ble_rx_buf_process_conn(hw, i, 1);
+    if (hw->rx[0] && hw->rx[1]) rx_starved &= ~bit;
     local_irq_enable();
 }
 #endif
@@ -1302,6 +1310,7 @@ static void RF_BLE_CODE le_hw_upload_data(struct ble_hw *ble_hw, void (*rx_handl
     u32 bit = 1u << HW_ID(ble_hw);
     if (rx && config_btctler_hci_standard && (rx->llid == 1 || rx->llid == 2) && !btctrlermod_host_acl_room()) {
         rx_held |= bit;
+        rx_starved |= bit;
         return;
     }
     rx_held &= ~bit;
@@ -1317,7 +1326,7 @@ static void RF_BLE_CODE le_hw_upload_data(struct ble_hw *ble_hw, void (*rx_handl
         rx_handler(hw->priv, rx);
         hw_dma_free(rx);
 #if BTCTRLERMOD
-        rx_rearm(hw);
+        rx_rearm(hw, bit);
 #endif
     } else rx_handler(hw->priv, rx);
 #if BTCTRLERMOD
@@ -2940,6 +2949,7 @@ int main(void)
         le_hw_upload_data(&instances[0], test_upload);
         le_hw_ioctrl(&instances[0], 19, &empty);
         CHECK(!uploads && rx_popped == 0 && empty && host_asks == 1 && frees == freed && !ll_resumes);
+        CHECK(rx_starved == 1);
         host_room = 1; dma_empty = 1;
         le_hw_upload_data(&instances[0], test_upload);
         empty = 0;
@@ -2954,12 +2964,17 @@ int main(void)
         struct ble_baseband_layer_handle *was = bb_hdl;
         bb_hdl = &test_bb.b; test_bb.b.hw_base.hw = instances;
         test_rx_buffer = test_bb.storage;
+        /* A link that was not held is not rearmed */
         frames[0].state = 6; frames[0].rx[0] = NULL; frames[0].rx[1] = &held_rx;
+        rx_starved = 0; rx_queue[2] = &held_rx; rx_queued = 3; host_room = 1; dma_empty = 1;
+        le_hw_upload_data(&instances[0], test_upload);
+        CHECK(uploads == 3 && frames[0].rx[0] == NULL);
+        rx_starved = 1;
         frames[0].ble_fp.RXBUF0CNTL = 1;
         rx_queue[2] = rx_queue[3] = &held_rx; rx_queued = 4; dma_empty = 0;
         le_hw_upload_data(&instances[0], test_upload);
-        CHECK(uploads == 3 && frames[0].rx[0] == test_rx_buffer && frames[0].rx[1] == &held_rx);
-        CHECK(ll_resumes == 1);
+        CHECK(uploads == 4 && frames[0].rx[0] == test_rx_buffer && frames[0].rx[1] == &held_rx);
+        CHECK(ll_resumes == 1 && !rx_starved);
         CHECK(!(frames[0].ble_fp.RXBUF0CNTL & 1) &&
               frames[0].ble_fp.RXPTR0 == (s16)PHY_TO_BLE(((struct ble_rx *)test_rx_buffer)->data));
         bb_hdl = was; frames[0].state = 0;
