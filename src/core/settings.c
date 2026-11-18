@@ -2,8 +2,8 @@
 #include "pad.h"
 
 /* Every setting is a row in a field table: a never-reused id, a name, a type,
- * its range, its default (per slot) and a line of help.  The tools read the
- * table over USB (set_describe), so a new row needs no tool update.
+ * its range and its default (per slot).  The tools read the table over USB
+ * (set_describe); labels and help live in the host string catalog.
  *
  * Each field is either default or set.  Only set fields are stored; reset
  * clears them, so a better default in a new firmware reaches every field
@@ -29,7 +29,6 @@ struct set_field {
     const u32 *slot_def;     /* slot fields: a default per slot instead; NULL: def */
     const u16 *number_def;   /* T_NUMBER: the board's default instead of def */
     const u8 *list_def;      /* T_LIST: its default numbers */
-    const char *help;
     u8 flags;                /* F_DEV: a developer setting (padtool --dev) */
 };
 #define F_DEV 1
@@ -80,86 +79,58 @@ static u32 radio_types, usb_types;
  * bright they are is the palette's.  One-colour lights (LEDS_MONO) have neither. */
 static const struct set_field slot_fields[] = {
     { .id = ID_RADIO, .name = "radio", .type = T_ENUM, .names = radios, FIELD(radio),
-      .slot_def = board_slots.radio, .allowed = &board_slots.radios,
-      .help = "the wireless host: off; bluetooth, as radio_type; dongle, our dongle, which shows "
-              "radio_type on its usb port.  A usb host on the cable wins while usb_type is set" },
+      .slot_def = board_slots.radio, .allowed = &board_slots.radios },
     { .id = ID_RADIO_TYPE, .name = "radio_type", .type = T_ENUM, .names = types, FIELD(radio_type),
-      .slot_def = board_slots.radio_type, .allowed = &radio_types,
-      .help = "what the bluetooth host sees, or with the dongle what its usb port shows (a type with "
-              "usb); changing the bluetooth host renews address and clears bond" },
+      .slot_def = board_slots.radio_type, .allowed = &radio_types },
     { .id = ID_USB_TYPE, .name = "usb_type", .type = T_ENUM, .names = types, FIELD(usb_type),
-      .slot_def = board_slots.usb_type, .allowed = &usb_types,
-      .help = "what a usb host on the cable sees, as a wired controller; none: no usb, the cable "
-              "only charges (and is the tool device)" },
+      .slot_def = board_slots.usb_type, .allowed = &usb_types },
 #if !LEDS_MONO
     { .id = 3, .name = "connect_colour", .type = T_ENTRY, FIELD(connect_colour),
-      PER_SLOT(5, 11, 7, 1, 9, 13, 3, 15),
-      .help = "Home and player lights while connecting and pairing: which slot" },
+      PER_SLOT(5, 11, 7, 1, 9, 13, 3, 15) },
     { .id = 4, .name = "primary_colour", .type = T_ENTRY, FIELD(primary_colour),
-      .def = 1,
-      .help = "Home while connected; the player lights around the player number" },
+      .def = 1 },
     { .id = 5, .name = "secondary_colour", .type = T_ENTRY, FIELD(secondary_colour),
-      .def = 7,
-      .help = "the console's player number; resting grips; the other end of fade" },
+      .def = 7 },
     { .id = 6, .name = "grips", .type = T_ENUM, .names = grips, FIELD(grips),
-      .def = GRIPS_OFF,
-      .help = "grip lights while connected: host is the console's lightbar colour; fade, rumble, "
-              "input, rainbow and heartbeat are animations, lit brighter than the steady colours" },
+      .def = GRIPS_OFF },
     { .id = 7, .name = "players", .type = T_ENUM, .names = players, FIELD(players),
-      .def = PLAYERS_HOST,
-      .help = "player lights while connected: host is the console's player number; fade and "
-              "rainbow are animations, lit brighter than the steady colours" },
+      .def = PLAYERS_HOST },
 #endif
-    { .id = ID_ADDRESS, .name = "address", .type = T_BYTES, FIELD(address),
-      .help = "the slot's own address, least significant byte first; zero: derived" },
-    { .id = ID_BOND, .name = "bond", .type = T_BYTES, FIELD(bond),
-      .help = "the paired host: peer, link key, key type, LE peer, LTK" },
+    { .id = ID_ADDRESS, .name = "address", .type = T_BYTES, FIELD(address) },
+    { .id = ID_BOND, .name = "bond", .type = T_BYTES, FIELD(bond) },
     /* The link, for measuring it; next connect. */
     { .id = 10, .flags = F_DEV, .name = "report_hz", .type = T_NUMBER, .max = 1000, FIELD(report_hz),
-      .def = 0, .help = "most reports per second, Classic and LE, whole milliseconds apart; "
-                             "reports are built when the radio has room; 0: 250" },
+      .def = 0 },
     { .id = 11, .flags = F_DEV, .name = "le_interval_min", .type = T_NUMBER, .max = 3200,
-      FIELD(link.le_interval_min), .def = 0,
-      .help = "LE: connection interval to ask for, 1.25 ms units (6 = 7.5 ms); 0: the profile's" },
+      FIELD(link.le_interval_min), .def = 0 },
     { .id = 12, .flags = F_DEV, .name = "le_interval_max", .type = T_NUMBER, .max = 3200,
-      FIELD(link.le_interval_max), .def = 0,
-      .help = "LE: the longest interval to accept; 0: le_interval_min" },
+      FIELD(link.le_interval_max), .def = 0 },
     { .id = 13, .flags = F_DEV, .name = "le_phy", .type = T_ENUM, .names = phys, FIELD(link.le_phy),
-      .def = 0, .help = "LE: 2m asks the host for the 2M PHY" },
+      .def = 0 },
     { .id = 14, .flags = F_DEV, .name = "in_flight", .type = T_NUMBER, .max = 8, FIELD(link.in_flight),
-      .def = 2, .help = "input reports in the controller at once; 0: 2" },
+      .def = 2 },
     { .id = 15, .flags = F_DEV, .name = "poll_us", .type = T_NUMBER, .max = 40000, FIELD(link.poll_us),
-      .def = 3750, .help = "Classic: Best Effort poll request in us (3750 minimum, rounded down to 1250 steps); 0: none" },
+      .def = 3750 },
     { .id = 16, .flags = F_DEV, .name = "pull_delay_us", .type = T_NUMBER, .max = 5000, FIELD(pull_delay_us),
-      .def = 0, .help = "build a report this long after the radio asks for it (fresher, "
-                             "until it misses the connection event)" },
+      .def = 0 },
     { .id = 17, .flags = F_DEV, .name = "jit_us", .type = T_NUMBER, .max = 10000, FIELD(link.jit_us),
-      .def = 0, .help = "build a report this long before the connection event or sniff "
-                             "anchor it goes out at; 0: adaptive; 1: as soon as the radio has room" },
+      .def = 0 },
     { .id = 18, .flags = F_DEV, .name = "edr3", .type = T_ENUM, .names = onoff, FIELD(link.edr3_off),
-      .def = 1, .help = "Classic: 3 Mbit/s packets (an 83-byte PlayStation report fits "
-                             "one, but a Linux host stalled more often); off: 2 Mbit/s only" },
+      .def = 1 },
     { .id = 19, .flags = F_DEV, .name = "sniff_max", .type = T_NUMBER, .max = 800, FIELD(link.sniff_max),
-      .def = 0, .help = "Classic: ask the host for sniff, at most this many 0.625 ms "
-                             "slots (even); 0: take what the host chooses" },
+      .def = 0 },
     { .id = 20, .flags = F_DEV, .name = "sniff_min", .type = T_NUMBER, .max = 800, FIELD(link.sniff_min),
-      .def = 0, .help = "Classic: the shortest sniff interval asked for; 0: sniff_max" },
+      .def = 0 },
     { .id = 21, .name = "tx_power", .type = T_ENUM, .names = tx_powers, FIELD(link.tx_power),
-      .def = 4, .help = "radio strength 1-6: 1 is about 20 dB below 5; 6 about 3 dB "
-                             "above 5, using more battery" },
+      .def = 4 },
     { .id = 22, .name = "remap", .type = T_ENUM, .names = remap_names, FIELD(remap),
-      .def = 0, .help = "the remap each connect starts with: base, or a remap slot (which takes what it "
-                             "has not set from base); Home+M then a slot key picks another until a "
-                             "disconnect, another slot or sleep" },
+      .def = 0 },
 #if SLOT_USB_AUDIO
     { .id = 23, .flags = F_DEV, .name = "usb_audio", .type = T_ENUM, .names = usb_sounds, FIELD(usb_audio),
-      .def = USB_SOUND_JACK, .help = "on USB, the personality's sound card (a board with one): jack, while "
-                                     "something is in the jack, USB coming back as that changes; on; off" },
+      .def = USB_SOUND_JACK },
 #endif
 #if SLOT_SWITCH2_WAKE
-    { .id = 26, .name = "switch2_wake", .type = T_BYTES, FIELD(switch2_wake),
-      .help = "switch: wake a Switch 2 as the Joy-Con 2 learnt here (padtool wake-learn): its "
-              "address, least significant byte first, and product ID; zero: no wake" },
+    { .id = 26, .name = "switch2_wake", .type = T_BYTES, FIELD(switch2_wake) },
 #endif
 };
 
@@ -197,16 +168,13 @@ static const struct set_field palette_fields[] = {
     ENTRY(14, 255, 0, 255), /* magenta */
     ENTRY(15, 255, 0, 128), /* pink */
     { .id = 17, .name = "steady_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(steady),
-      .number_def = &board_led_brightness.steady, .help = "Home and the player lights while connected, and steady grips: tenths of "
-                         "the LEDs' smallest step (10 is 1 of 255); in-between values need dithering" },
+      .number_def = &board_led_brightness.steady },
     { .id = 18, .name = "animation_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(animation),
-      .number_def = &board_led_brightness.animation, .help = "animated grips and player lights (fade, rumble, input, rainbow, heartbeat), "
-                          "in tenths of the LEDs' smallest step" },
+      .number_def = &board_led_brightness.animation },
     { .id = 19, .name = "connect_brightness", .type = T_NUMBER, .max = 2550, BRIGHTNESS(connect),
-      .number_def = &board_led_brightness.connect, .help = "the lights while connecting and pairing, in tenths of the LEDs' smallest step" },
+      .number_def = &board_led_brightness.connect },
     { .id = 20, .flags = F_DEV, .name = "dither_ms", .type = T_NUMBER, .max = 20, BRIGHTNESS(dither_ms),
-      .def = 2, .help = "experiment: refresh dim lights this often (ms), alternating the steps on either "
-                        "side, for brightness between them and smooth dim fades; 0 off" },
+      .def = 2 },
 };
 #define PALETTE_FIELDS COUNT(palette_fields)
 #define PALETTE_TABLE palette_fields
@@ -215,89 +183,57 @@ static const struct set_field palette_fields[] = {
 #define PALETTE_FIELDS 0u
 #endif
 
-#define TEXT(x) #x
-#define NUMBER_TEXT(x) TEXT(x)
-#define RULES_TEXT NUMBER_TEXT(REMAP_RULES)
 #define REMAP(f) .offset = offsetof(struct set_remap, f), .size = sizeof(((struct set_remap *)0)->f)
 
 _Static_assert(sizeof(struct remap_rule) == 10, "stored rule layout");
 
 /* Remap slots south-right; the tools read and write map and rules as text. */
 static const struct set_field remap_fields[] = {
-    { .id = 1, .name = "name", .type = T_TEXT, REMAP(name),
-      .help = "what this remap is for; UTF-8, up to 24 bytes" },
-    { .id = 2, .name = "map", .type = T_BYTES, REMAP(map),
-      .help = "each key's base row: while held it sends itself (default), another key or "
-              "nothing; its rules add to that" },
-    { .id = 3, .name = "rules", .type = T_BYTES, REMAP(rule),
-      .help = "up to " RULES_TEXT ": when a key is held, held for, pressed, released, tapped or double-tapped, "
-              "hold, turbo, tap or toggle other keys, nothing, or make chosen keys turbo while it is on "
-              "(turbo modifier)" },
+    { .id = 1, .name = "name", .type = T_TEXT, REMAP(name) },
+    { .id = 2, .name = "map", .type = T_BYTES, REMAP(map) },
+    { .id = 3, .name = "rules", .type = T_BYTES, REMAP(rule) },
     /* From here on the second record (REMAP_STICKS): a stick at a time, then
      * rumble, the mouse and the triggers. */
-    { .id = 4, .name = "left_maps_to", .type = T_ENUM, .names = left_to, REMAP(maps_to[0]),
-      .help = "the host stick the physical left stick drives; if both drive one, the one pushed further wins" },
-    { .id = 5, .name = "left_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][0]),
-      .help = "inverted: the left stick's left and right are swapped" },
-    { .id = 6, .name = "left_y_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][1]),
-      .help = "inverted: the left stick's up and down are swapped" },
-    { .id = 7, .name = "left_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].inner),
-      .help = "left stick: percent around centre suppressed" },
-    { .id = 8, .name = "left_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].outer),
-      .help = "left stick: percent of outer travel discarded" },
-    { .id = 9, .name = "left_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(left_curve_enabled),
-      .help = "enable left stick points; disabled passes calibrated input through exactly and retains the points" },
-    { .id = 10, .name = "left_curve_points", .type = T_BYTES, REMAP(left_curve_points),
-      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
-    { .id = 11, .name = "right_maps_to", .type = T_ENUM, .names = right_to, REMAP(maps_to[1]),
-      .help = "the host stick the physical right stick drives; if both drive one, the one pushed further wins" },
-    { .id = 12, .name = "right_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[1][0]),
-      .help = "inverted: the right stick's left and right are swapped" },
-    { .id = 13, .name = "right_y_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[1][1]),
-      .help = "inverted: the right stick's up and down are swapped" },
-    { .id = 14, .name = "right_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].inner),
-      .help = "right stick: percent around centre suppressed" },
-    { .id = 15, .name = "right_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].outer),
-      .help = "right stick: percent of outer travel discarded" },
-    { .id = 16, .name = "right_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(right_curve_enabled),
-      .help = "enable right stick points; disabled passes calibrated input through exactly and retains the points" },
-    { .id = 17, .name = "right_curve_points", .type = T_BYTES, REMAP(right_curve_points),
-      .help = "15 nondecreasing output bytes (0-255) at 6.25% input intervals; endpoints fixed at zero and full" },
+    { .id = 4, .name = "left_maps_to", .type = T_ENUM, .names = left_to, REMAP(maps_to[0]) },
+    { .id = 5, .name = "left_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][0]) },
+    { .id = 6, .name = "left_y_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[0][1]) },
+    { .id = 7, .name = "left_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].inner) },
+    { .id = 8, .name = "left_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[0].outer) },
+    { .id = 9, .name = "left_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(left_curve_enabled) },
+    { .id = 10, .name = "left_curve_points", .type = T_BYTES, REMAP(left_curve_points) },
+    { .id = 11, .name = "right_maps_to", .type = T_ENUM, .names = right_to, REMAP(maps_to[1]) },
+    { .id = 12, .name = "right_x_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[1][0]) },
+    { .id = 13, .name = "right_y_axis", .type = T_ENUM, .names = axis_way, REMAP(invert[1][1]) },
+    { .id = 14, .name = "right_inner_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].inner) },
+    { .id = 15, .name = "right_outer_deadzone", .type = T_NUMBER, .max = 25, REMAP(deadzone[1].outer) },
+    { .id = 16, .name = "right_curve_enabled", .type = T_ENUM, .names = curve_enabled, REMAP(right_curve_enabled) },
+    { .id = 17, .name = "right_curve_points", .type = T_BYTES, REMAP(right_curve_points) },
     { .id = 18, .name = "rumble", .type = T_ENUM, .names = rumble_steps, REMAP(rumble),
-      .def = 3, .help = "how strong the motors are: each step has its own motor ranges and kick "
-                        "(developer settings); Home+M then L1/R1 changes it until a disconnect" },
+      .def = 3 },
     { .id = 19, .flags = F_DEV, .name = "rumble_left_min", .type = T_LIST, .max = 100, REMAP(rumble_min[0]),
-      .list_def = board_rumble.min[0], .help = "left motor, steps 1-5: percent power for the lightest rumble; "
-                                            "rumble between this and the max spreads evenly" },
+      .list_def = board_rumble.min[0] },
     { .id = 20, .flags = F_DEV, .name = "rumble_left_max", .type = T_LIST, .max = 100, REMAP(rumble_max[0]),
-      .list_def = board_rumble.max[0], .help = "left motor, steps 1-5: percent power for full rumble" },
+      .list_def = board_rumble.max[0] },
     { .id = 21, .flags = F_DEV, .name = "rumble_right_min", .type = T_LIST, .max = 100, REMAP(rumble_min[1]),
-      .list_def = board_rumble.min[1], .help = "right motor, steps 1-5: percent power for the lightest rumble" },
+      .list_def = board_rumble.min[1] },
     { .id = 22, .flags = F_DEV, .name = "rumble_right_max", .type = T_LIST, .max = 100, REMAP(rumble_max[1]),
-      .list_def = board_rumble.max[1], .help = "right motor, steps 1-5: percent power for full rumble" },
+      .list_def = board_rumble.max[1] },
     { .id = 23, .flags = F_DEV, .name = "rumble_kick_ms", .type = T_LIST, .max = 255, REMAP(rumble_kick_ms),
-      .list_def = board_rumble.kick_ms, .help = "steps 1-5: a motor starting from stopped runs at full power "
-                                         "this long first, so a low minimum still starts it; 0: no kick" },
+      .list_def = board_rumble.kick_ms },
     { .id = 24, .flags = F_DEV, .name = "mouse_layout", .type = T_ENUM, .names = layouts, REMAP(mouse_layout),
-      .def = 0, .help = "mouse: what each control does; from the next connect" },
+      .def = 0 },
     { .id = 25, .flags = F_DEV, .name = "stick_speed", .type = T_NUMBER, .max = 20000, REMAP(stick_speed),
-      .def = 1500, .help = "mouse: pointer counts per second, stick all the way; from the next connect" },
+      .def = 1500 },
     { .id = 26, .flags = F_DEV, .name = "gyro_speed", .type = T_NUMBER, .max = 1000, REMAP(gyro_speed),
-      .def = 32, .help = "mouse, touchpad: counts per degree turned; 0 off; from the next connect" },
+      .def = 32 },
     { .id = 27, .flags = F_DEV, .name = "gyro_accel", .type = T_NUMBER, .max = 1000, REMAP(gyro_accel),
-      .def = 250, .help = "mouse, touchpad: percent of gyro_speed for fast turns; from the next connect" },
+      .def = 250 },
     { .id = 28, .name = "l2_press", .type = T_NUMBER, .max = 100, REMAP(trigger_press[0]),
-      .def = 5, .help = "L2: percent of travel where it counts as pressed (a host's digital trigger, "
-                         "hair and rapid); it lets go 3% short of it" },
-    { .id = 29, .name = "l2_mode", .type = T_ENUM, .names = trigger_modes, REMAP(trigger_mode[0]),
-      .help = "L2: default: the analog value as it is; hair: full from the press point, else nothing; rapid: as hair, "
-              "but it lets go as soon as the trigger rises 5% and presses again 5% down, anywhere" },
+      .def = 5 },
+    { .id = 29, .name = "l2_mode", .type = T_ENUM, .names = trigger_modes, REMAP(trigger_mode[0]) },
     { .id = 30, .name = "r2_press", .type = T_NUMBER, .max = 100, REMAP(trigger_press[1]),
-      .def = 5, .help = "R2: percent of travel where it counts as pressed (a host's digital trigger, "
-                         "hair and rapid); it lets go 3% short of it" },
-    { .id = 31, .name = "r2_mode", .type = T_ENUM, .names = trigger_modes, REMAP(trigger_mode[1]),
-      .help = "R2: default: the analog value as it is; hair: full from the press point, else nothing; rapid: as hair, "
-              "but it lets go as soon as the trigger rises 5% and presses again 5% down, anywhere" },
+      .def = 5 },
+    { .id = 31, .name = "r2_mode", .type = T_ENUM, .names = trigger_modes, REMAP(trigger_mode[1]) },
 };
 #define REMAP_STICKS 3                    /* remap fields from this index: the second record */
 #define LEFT_POINTS  (&remap_fields[9])
@@ -319,9 +255,7 @@ static const struct set_remap remap_south_default = {
  * a write goes straight to flash at commit, reads and playing come from
  * flash.  A slot with none set plays the base's. */
 static const struct set_field macro_fields[] = {
-    { .id = 1, .name = "macros", .type = T_BYTES, .offset = 0, .size = REMAP_MACRO_BYTES,
-      .help = "up to 8 named macros: key presses, releases and waits; rules play them (macro, "
-              "play macro, toggle macro); a remap slot with none plays the base's" },
+    { .id = 1, .name = "macros", .type = T_BYTES, .offset = 0, .size = REMAP_MACRO_BYTES },
 };
 #define MACROS_FIELD (&macro_fields[0])
 #define TARGET_BASE_MACROS (TARGET_MACROS + SLOTS)
@@ -331,8 +265,7 @@ _Static_assert(sizeof(struct set_cal) == 112, "stored calibration layout");
 
 static const struct set_field cal_fields[] = {
     { .id = 1, .name = "calibration", .type = T_BYTES, .offset = 0,
-      .size = sizeof(struct set_cal),
-      .help = "sensor calibration for sticks and triggers; legacy stick deadzones ignored" },
+      .size = sizeof(struct set_cal) },
 };
 
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
@@ -1328,8 +1261,8 @@ static u32 put_string(u8 *out, u32 o, u32 max, const char *s)
 
 /* Field number n over all targets: slots, palette, calibration, remap slots.
  * [0] version [1] target kind [2] id [3] type [4] size [6..7] max, then
- * name, help, the enum names (all NUL-terminated) and the defaults (one per
- * slot for slot fields).  0: past the last. */
+ * name, an empty legacy help slot, the enum names (all NUL-terminated),
+ * then defaults (one per slot for slot fields).  0: past the last. */
 u32 set_describe(u32 n, u8 *out, u32 max)
 {
     u32 kinds[5] = { COUNT(slot_fields), PALETTE_FIELDS, COUNT(cal_fields), COUNT(remap_fields),
@@ -1350,7 +1283,7 @@ u32 set_describe(u32 n, u8 *out, u32 max)
     out[5] = f->flags;
     util_put16(out + 6, (u16)field_max(f));
     o = put_string(out, 8, max, f->name);
-    o = put_string(out, o, max, f->help);
+    o = put_string(out, o, max, "");  /* legacy help slot; prose lives in the UI */
     for (i = 0; f->type == T_ENUM && f->names[i]; i++)   /* one the board does not take: empty */
         o = put_string(out, o, max, enum_allowed(f, i) ? f->names[i] : "");
     defs = kind == 0 ? SLOTS : 1;
@@ -2136,8 +2069,10 @@ static int full_storage(void)
     CHECK(set_describe(t, buf, sizeof(buf)) && buf[1] == 3 && buf[3] == T_TEXT);
     CHECK(set_describe(t + COUNT(remap_fields), buf, sizeof(buf)) && buf[1] == 4 && buf[4] == REMAP_MACRO_BYTES);
     CHECK(set_describe(t + COUNT(remap_fields) + COUNT(macro_fields), buf, sizeof(buf)) == 0);
-    for (t = 0; t < COUNT(slot_fields) + PALETTE_FIELDS + COUNT(cal_fields) + COUNT(remap_fields) + COUNT(macro_fields); t++)
+    for (t = 0; t < COUNT(slot_fields) + PALETTE_FIELDS + COUNT(cal_fields) + COUNT(remap_fields) + COUNT(macro_fields); t++) {
         CHECK(set_describe(t, buf, 512) > 0);
+        CHECK(buf[8 + strlen((const char *)buf + 8) + 1] == 0);   /* legacy help is empty */
+    }
     CHECK(set_read(3, buf, sizeof(buf)) > 3 && buf[2] == COUNT(slot_fields));
     CHECK(set_read(TARGET_CAL, buf, sizeof(buf)) == 6u + cal_fields[0].size);
     {

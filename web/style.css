@@ -232,3 +232,12 @@ svg.macrograph .label.end { text-anchor: end; }
   overflow-wrap: anywhere;
   resize: vertical;
 }
+
+/* Only the mock review harness creates these message surfaces. */
+#review-dialog { padding: 18px; margin-bottom: 16px; border: 2px solid var(--accent); border-radius: 8px; background: var(--panel); }
+#mock-notice { padding: 12px; border-left: 3px solid var(--error); color: var(--error); }
+
+.ble-controls { display: flex; align-items: center; gap: 8px; }
+.ble-permission-help { position: relative; }
+.ble-permission-help > summary { cursor: pointer; list-style: none; border: 1px solid var(--line); border-radius: 50%; width: 24px; text-align: center; }
+.ble-permission-help > p { position: absolute; right: 0; z-index: 2; width: max-content; max-width: 65vw; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }

@@ -1,12 +1,12 @@
+import { ask, tell } from "./dialogs.js";
+import { text as msg, fieldText } from "./i18n.js";
 // The page: connect to a pad over Bluetooth in config mode (Home+M held for
 // 3 s) or over USB (its tool device), show what it is and its settings, and
 // change them.  Screens: home (how to connect; in the Android app Manage
 // Firmware and the devices, flash.js), config (a pad on a link), and in the
 // Android app manage (Manage Firmware) and action (one of its actions);
 // Back (and the browser's or phone's back) goes back a screen.
-import { links as webBluetooth } from "./link-web.js";
-import { links as webUsb } from "./link-hid.js";
-import { android } from "./link-android.js";
+import { bluetooth, usb, android, mock } from "./environment.js";
 import { setupPads } from "./flash.js";
 import { Pad, TARGETS, T, PALETTE, PALETTE_TARGET, REMAP_TARGET, BASE_TARGET, MACROS_TARGET, SLOT_NAMES, kindOf, targetsFor,
   showValue, parseValue, editable, slotLabel, remapPart, macrosOf, remapOf } from "./pad.js";
@@ -21,13 +21,12 @@ const STATUS_EVERY_MS = 5000;    // also keeps config mode open (it ends a minut
 // Developer extras (the link tests): the page opened with ?dev.
 const DEV = new URLSearchParams(location.search).has("dev");
 
+let quickMacroReady = false;
 let pad = null, poll = null, image = null, layout = null;
 
 // In the Android app (a WebView, without Web Bluetooth or WebHID) the app
 // supplies the links, and a flasher for the boot loaders: there home
 // watches USB and takes a pad where it belongs (flash.js).
-const bluetooth = android?.bluetooth ?? webBluetooth;
-const usb = android?.usb ?? webUsb;
 const pads = android ? setupPads(android.flasher, android.bluetooth, {
   openSettings: (device) => connect(usb, device),
   openBle: (address) => connect(bluetooth, address),
@@ -70,9 +69,9 @@ function home(force = false) {
 function leave() {
   const force = leaving;
   leaving = false;
-  if (updating) return alert("Wait for the update to finish."), false;
-  if (screen === "manage" || screen === "action") return pads.leave() || (alert("Wait for it to finish."), false);
-  if (!force && edits.size && !confirm("Discard the unsaved changes?")) return false;
+  if (updating) return tell(msg("ui.app.wait_for_the_update_to_finish")), false;
+  if (screen === "manage" || screen === "action") return pads.leave() || (tell(msg("ui.app.wait_for_it_to_finish")), false);
+  if (!force && edits.size && !ask(msg("ui.app.discard_the_unsaved_changes"))) return false;
   disconnect();
   return true;
 }
@@ -88,7 +87,7 @@ addEventListener("popstate", (e) => {
 function targetName(t) {
   if (t >= MACROS_TARGET) return `${targetName(remapOf(t))} macros`;
   if (t < 8) return `Slot ${slotLabel(layout, t)}`;
-  if (t === BASE_TARGET) return "Remap base";
+  if (t === BASE_TARGET) return msg("ui.app.remap_base");
   if (t >= REMAP_TARGET) return `Remap ${slotLabel(layout, t - REMAP_TARGET)}`;
   return TARGETS[t][0].toUpperCase() + TARGETS[t].slice(1);
 }
@@ -96,12 +95,13 @@ function targetName(t) {
 // What happened, out of the way: something that failed or blocks a dialog
 // (problem), a short note after something is done a toast at the bottom
 // that fades (toast).  Progress shows where it happens.
-const problem = (message) => alert(message);
+const problem = (message) => mock ? mock.notice(message) : tell(message);
 let toastTimer = null;
 function toast(message) {
   $("toast").textContent = message;
   $("toast").hidden = !message;
   clearTimeout(toastTimer);
+  if (mock?.review) return;
   toastTimer = setTimeout(() => { $("toast").hidden = true; }, 4000);
 }
 
@@ -110,20 +110,20 @@ const spinner = () => h("span", { class: "spinner", "aria-hidden": "true" });
 // What the pad is; id null: the box in place, a spinner where the board goes.
 function showIdentity(id, link) {
   const hid = link.kind === "hid";
-  const rows = [["Board", id ? id.boardName || "?" : spinner()],
-    ["Mode", id && (id.updater ? "updater" : hid ? "app" : "config mode")],
-    ["Product", id?.product], ["Build", id?.build], ["Flash ID", id?.flashId], ["Protocol", id && String(id.protocol)],
-    [hid ? "USB" : "Bluetooth", link.name]];
+  const rows = [[msg("ui.app.board"), id ? id.boardName || "?" : spinner()],
+    [msg("ui.app.mode"), id && (id.updater ? msg("ui.app.updater") : hid ? msg("ui.app.app") : msg("ui.app.config_mode"))],
+    [msg("ui.app.product"), id?.product], [msg("ui.app.build"), id?.build], [msg("ui.app.flash_id"), id?.flashId], [msg("ui.app.protocol"), id && String(id.protocol)],
+    [hid ? msg("ui.app.usb") : msg("ui.app.bluetooth"), link.name]];
   $("identity").replaceChildren(h("dl", { "aria-busy": id ? null : "true" },
-    rows.map(([k, v]) => [h("dt", {}, k), h("dd", { class: k === "Flash ID" ? "mono" : null }, v ?? "")])));
+    rows.map(([k, v]) => [h("dt", {}, k), h("dd", { class: k === msg("ui.app.flash_id") ? "mono" : null }, v ?? "")])));
 }
 
 function showStatus(s) {
   const battery = [s.percent !== null ? `${s.percent}%` : null, s.mv !== null ? `${s.mv} mV` : null,
-    s.charging, s.low ? "low" : null].filter(Boolean).join(", ");
+    s.charging, s.low ? msg("ui.app.low") : null].filter(Boolean).join(", ");
   $("status").textContent = [`state ${s.state}`, s.slot ? `slot ${slotLabel(layout, SLOT_NAMES.indexOf(s.slot))}` : null,
     battery ? `battery ${battery}` : null, `up ${s.uptime.toFixed(0)} s`,
-    s.ephemeral ? "ephemeral" : null].filter(Boolean).join(" · ");
+    s.ephemeral ? msg("ui.app.ephemeral") : null].filter(Boolean).join(" · ");
 }
 
 // ---- settings ----
@@ -143,9 +143,9 @@ function paletteColour(i) {
 // ---- how settings read: padgui's names ----
 
 // A remap slot's stick and trigger settings go in a box each.
-const SIDES = { left: "Left stick", right: "Right stick", l2: "L2 trigger", r2: "R2 trigger" };
-const BOXED = { maps_to: "Maps to", x_axis: "Invert X axis", y_axis: "Invert Y axis", press: "Digital at",
-  mode: "Analog mode", curve_points: "Curve" };
+const SIDES = { left: msg("ui.app.left_stick"), right: msg("ui.app.right_stick"), l2: msg("ui.app.l2_trigger"), r2: msg("ui.app.r2_trigger") };
+const BOXED = { maps_to: msg("ui.app.maps_to"), x_axis: msg("ui.app.invert_x_axis"), y_axis: msg("ui.app.invert_y_axis"), press: msg("ui.app.digital_at"),
+  mode: msg("ui.app.analog_mode"), curve_points: msg("ui.app.curve") };
 const sentence = (s) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
 function sideOf(t, f) {
@@ -158,7 +158,7 @@ function sideOf(t, f) {
 function look(t, f) {
   const side = sideOf(t, f), rest = side ? f.name.slice(side.length + 1) : f.name;
   return {
-    side, label: (side && BOXED[rest]) || sentence(rest),
+    side, label: fieldText(f, "label", (side && BOXED[rest]) || sentence(rest)),
     checkbox: !!side && (rest === "x_axis" || rest === "y_axis") && f.type === T.ENUM && f.names.length === 2,
     nice: !!side && f.type === T.ENUM, unit: rest === "press" ? " %" : "",
   };
@@ -167,7 +167,7 @@ function look(t, f) {
 function editor(t, f, shown, how) {
   let e;
   if (f.type === T.ENUM) {
-    e = h("select", {}, f.names.filter(Boolean).map((n) => h("option", { value: n }, how.nice ? sentence(n) : n)));
+    e = h("select", {}, f.names.filter(Boolean).map((n) => h("option", { value: n }, fieldText(f, `options.${n}`, how.nice ? sentence(n) : n))));
   } else if (f.type === T.ENTRY) {
     e = h("select", {}, Array.from({ length: PALETTE }, (_, i) => h("option", { value: String(i) }, String(i))));
   } else if (f.type === T.RGB) {
@@ -225,8 +225,10 @@ function row(t, f, rows) {
   } else {
     cell = h("span", { class: "mono" }, shown);
   }
-  const shownDef = def !== null && how.nice ? sentence(def) : def;
-  const reset = h("button", { type: "button", class: "small" }, "Set to default");
+  const shownDef = f.type === T.ENUM && def !== null
+    ? fieldText(f, `options.${def}`, how.nice ? sentence(def) : def) : def;
+  const help = fieldText(f, "help", f.help);
+  const reset = h("button", { type: "button", class: "small" }, msg("ui.app.set_to_default"));
   reset.addEventListener("click", () => {
     reset.closest("details")?.removeAttribute("open");
     if (!v.set) {               // at its default already: just drop the edit
@@ -245,9 +247,9 @@ function row(t, f, rows) {
     bar();
   });
   // The name opens its menu: help, the default, back to it.
-  const menu = nameMenu(how.label, f.help ? h("p", {}, f.help) : null,
-    h("p", { class: "muted" }, v.set ? "Saved on the pad." : "The firmware's default."),
-    def !== null ? h("p", {}, "Default: ", h("strong", {}, shownDef === "" ? "(empty)" : shownDef)) : null,
+  const menu = nameMenu(how.label, help ? h("p", {}, help) : null,
+    h("p", { class: "muted" }, v.set ? msg("ui.app.saved_on_the_pad") : msg("ui.app.the_firmware_s_default")),
+    def !== null ? h("p", {}, msg("ui.app.default"), h("strong", {}, shownDef === "" ? "(empty)" : shownDef)) : null,
     editable(f) ? reset : null, h("p", { class: "muted mono" }, f.name));
   // A curve takes the whole row, under its name.
   if (part === "curve") tr.append(h("td", { colspan: 2 }, menu, cell));
@@ -309,6 +311,7 @@ function targetSection(t, open) {
       inherited: !m.set, base: t === BASE_TARGET, layout,
       changed: () => keys?.redraw(), reset: () => mrow.reset.click(),
       quickMacro: () => pad.quickMacro(),
+      quickMacroAvailable: () => quickMacroReady,
     });
   }
   // The rest, then a box per stick and trigger (padgui's grouping), then
@@ -325,12 +328,12 @@ function targetSection(t, open) {
     h("tbody", {}, trs));
   return h("details", { open, "data-target": t },
     h("summary", {}, targetName(t), h("span", { class: "muted mono" }, ` ${TARGETS[t]}`)),
-    rows.length ? settings(general) : h("p", { class: "muted" }, "Nothing here."),
+    rows.length ? settings(general) : h("p", { class: "muted" }, msg("ui.app.nothing_here")),
     keys,
     macros, mrow ? h("table", { hidden: true }, h("tbody", {}, mrow)) : null,
     [...boxes].map(([side, trs]) => h("section", { class: "box" }, h("h3", {}, SIDES[side]), settings(trs))),
     dev.length ? h("details", { class: "devfold", open: devOpen.has(t) },
-      h("summary", {}, "Developer fields", h("span", { class: "muted" }, " — for measuring and testing")), settings(dev)) : null);
+      h("summary", {}, msg("ui.app.developer_fields"), h("span", { class: "muted" }, msg("ui.app.for_measuring_and_testing"))), settings(dev)) : null);
 }
 
 // Developer folds left open, by target.
@@ -366,10 +369,10 @@ async function readTarget(t) {
 async function save() {
   const items = [...edits.values()];
   const renew = items.filter((e) => e.f.kind === 0 && (e.f.name === "radio" || e.f.name === "radio_type"));
-  if (renew.length && !confirm(`Changing a slot's Bluetooth type, or moving it between Bluetooth and the dongle, renews its address and clears its pairing (${renew.map((e) => TARGETS[e.target]).join(", ")}). Save?`)) return;
+  if (renew.length && !ask(`Changing a slot's Bluetooth type, or moving it between Bluetooth and the dongle, renews its address and clears its pairing (${renew.map((e) => TARGETS[e.target]).join(", ")}). Save?`)) return;
   $("save").disabled = $("undo").disabled = true;
   try {
-    $("save").textContent = "Saving…";
+    $("save").textContent = msg("ui.app.saving");
     await pad.write(items);
     // A base's change shows in every remap slot that takes it from there.
     const reread = new Set(items.map((e) => e.target));
@@ -380,7 +383,7 @@ async function save() {
     render();
     const s = await pad.status();
     showStatus(s);
-    toast(`Saved${s.ephemeral ? " (ephemeral: until the next boot)" : ""}; it applies on the next connect.`);
+    toast(`Saved${s.ephemeral ? msg("ui.app.ephemeral_until_the_next_boot") : ""}; it applies on the next connect.`);
   } catch (error) {
     // Which settings the pad refused, by name (nothing was saved).
     const named = (error.refused || []).map((r) => `${targetName(r.target)}, ${look(r.target, r.f).label}: ${r.why}`);
@@ -391,7 +394,7 @@ async function save() {
       if (tr) tr.title = `the pad: ${r.why}`;
     }
   } finally {
-    $("save").textContent = "Save";
+    $("save").textContent = msg("ui.app.save");
     $("save").disabled = false;
     $("undo").disabled = false;
     bar();
@@ -403,7 +406,7 @@ async function save() {
 let releaseLock = null;
 
 function takeLock() {
-  if (!navigator.locks) return Promise.resolve(true);
+  if (mock || !navigator.locks) return Promise.resolve(true);
   return new Promise((resolve) => {
     navigator.locks.request("jollymaam-pad-link", { ifAvailable: true }, (lock) => {
       resolve(!!lock);
@@ -424,8 +427,8 @@ async function connect(links, device = null) {
   pads?.leave();
   disconnect();
   if (links === bluetooth && !(await takeLock())) {
-    return problem("The pad settings page is already connected in another tab or window: use that one, " +
-      "or Disconnect there first.");
+    return problem(msg("ui.app.the_pad_settings_page_is_already_connected_in_another_tab_or_window_use_that_one") +
+      msg("ui.app.or_disconnect_there_first"));
   }
   let link;
   try {
@@ -449,7 +452,7 @@ async function connect(links, device = null) {
       return attach(p);
     } catch (error) {
       console.info(`link: the first command failed: ${error.name}: ${error.message}` +
-        (Date.now() > end ? "; giving up" : "; a fresh link"));
+        (Date.now() > end ? msg("ui.app.giving_up") : msg("ui.app.a_fresh_link")));
       p.onDisconnect = null;     // not closed: on Linux that ends the link for every program on it
       if (Date.now() > end) {
         home(true);
@@ -472,8 +475,8 @@ async function attach(p) {
   pad = p;
   pad.onDisconnect = () => {
     home(true);
-    toast(p.usb ? "The pad went away (unplugged, or it restarted)."
-      : "The pad went away (config mode ends a minute after the last command, or on Home).");
+    toast(p.usb ? msg("ui.app.the_pad_went_away_unplugged_or_it_restarted")
+      : msg("ui.app.the_pad_went_away_config_mode_ends_a_minute_after_the_last_command_or_on_home"));
   };
   for (const b of document.querySelectorAll("#tests .needs-pad")) b.hidden = false;
   try {
@@ -482,16 +485,19 @@ async function attach(p) {
     $("firmware").hidden = !!pads;   // the app: Manage Firmware
     pickImage();
     if (id.updater) return;      // the Mode row says so; Firmware update is what it takes
-    layout = await pad.layout().catch(() => null);
-    showStatus(await pad.status());
+    layout = await p.layout().catch(() => null);
+    const status = await p.status();
+    await refreshQuickMacro(p);
+    if (pad !== p) return;
+    showStatus(status);
     poll = setInterval(async () => {
-      try { showStatus(await pad.status()); } catch { /* the disconnect handler says it */ }
+      try { showStatus(await p.status()); await refreshQuickMacro(p); } catch { /* the disconnect handler says it */ }
     }, STATUS_EVERY_MS);
     await loadSettings();
     $("tests").hidden = !!pads || !DEV;
   } catch (error) {
     if (pad !== p) return;       // Disconnect: nothing to say
-    problem(String(error.message || error));
+    $("settings").replaceChildren(h("p", { class: "error", role: "alert", id: "settings-error" }, String(error.message || error)));
   }
 }
 
@@ -506,7 +512,7 @@ async function loadSettings() {
   if (!table.length) {          // a device without settings (a dongle)
     values = new Map();
     defaults = new Map();
-    return $("settings").replaceChildren(h("p", { class: "muted" }, "This device has no settings."));
+    return $("settings").replaceChildren(h("p", { class: "muted" }, msg("ui.app.this_device_has_no_settings")));
   }
   const targets = targetsFor(table);
   values = new Map();
@@ -524,7 +530,15 @@ function stop() {
   dropLock();
 }
 
+async function refreshQuickMacro(p) {
+  const available = await p.hasQuickMacro().catch(() => false);
+  if (pad !== p) return;
+  quickMacroReady = available;
+  for (const button of document.querySelectorAll(".quick-macro-import")) button.disabled = !available || button.dataset.importing === "true";
+}
+
 function disconnect() {
+  quickMacroReady = false;
   stop();
   if (pad) {
     pad.onDisconnect = null;
@@ -556,20 +570,20 @@ async function setPackage(name, bytes) {
     $("pkginfo").textContent = `Package: ${name}`;
     $("pkginfo").classList.remove("error");
   } catch (error) {
-    $("pkginfo").textContent = `${name}: ${error.message || error}`;
+    $("pkginfo").textContent = pads ? "" : `${name}: ${error.message || error}`;
     $("pkginfo").classList.add("error");
   }
   pickImage();
-  await pads?.setPackage(name, bytes);
+  await pads?.setPackage(name, pkg ? bytes : null);
 }
 
-const BUNDLED = "firmware.zip (bundled)";
+const BUNDLED = msg("ui.app.firmware_zip_bundled");
 
 // The home card: Load package, or Unload package while one is loaded.
 function showLoaded() {
-  $("loadpkg").querySelector("strong").textContent = loaded ? "Unload Package" : "Load Package";
+  $("loadpkg").querySelector("strong").textContent = loaded ? msg("ui.app.unload_package") : msg("ui.app.load_package");
   $("loadpkginfo").textContent = loaded ?? "";
-  $("fwload").textContent = loaded ? `Unload ${loaded}` : "Load package…";
+  $("fwload").textContent = loaded ? `Unload ${loaded}` : msg("ui.app.load_package_1");
 }
 
 async function loadPackage(file) {
@@ -578,7 +592,7 @@ async function loadPackage(file) {
     bytes = new Uint8Array(await file.arrayBuffer());
     await openPackage(bytes);
   } catch (error) {
-    return alert(`${file.name} is not a firmware package: ${error.message || error}`);
+    return tell(`${file.name} is not a firmware package: ${error.message || error}`);
   }
   loaded = file.name;
   await setPackage(file.name, bytes);
@@ -586,14 +600,24 @@ async function loadPackage(file) {
 }
 
 async function unloadPackage() {
-  if (!confirm(`Unload ${loaded} and go back to ${bundled ? "the bundled firmware package" : "no package"}?`)) return;
   loaded = null;
   if (bundled) await setPackage(BUNDLED, bundled);
-  else pkg = null, pickImage();
+  else {
+    pkg = null;
+    $("pkginfo").textContent = "";
+    await pads?.setPackage(null, null);
+    pickImage();
+  }
   showLoaded();
 }
 
 async function bundledPackage() {
+  if (mock) {
+    bundled = mock.packageBytes;
+    if (bundled) await setPackage("Mock firmware package", bundled);
+    showLoaded();
+    return;
+  }
   try {
     const r = await fetch("firmware.zip");
     if (!r.ok) return;
@@ -612,7 +636,7 @@ function fwSay(text, error = false) {
 async function pickImage() {
   image = null;
   $("update").disabled = true;
-  if (!pkg || !pad?.id) return fwSay(pkg ? "" : `No firmware package: ${pads ? "load one in Manage Firmware (Load Package)" : "load one (Load package…)"}.`);
+  if (!pkg || !pad?.id) return fwSay(pkg ? "" : `No firmware package: ${pads ? msg("ui.app.load_one_in_manage_firmware_load_package") : msg("ui.app.load_one_load_package")}.`);
   const file = findFile(pkg, pad.id.product, "update");
   if (!file) return fwSay(`The package has no update for this pad (${pad.id.product}).`, true);
   try {
@@ -632,7 +656,7 @@ function fwLog(line) {
 }
 
 async function update() {
-  if (!image || !confirm(`Write this firmware to ${pad.id.boardName}?`)) return;
+  if (!image || !ask(`Write this firmware to ${pad.id.boardName}?`)) return;
   const p = pad, data = image;
   p.onDisconnect = null;         // the update restarts the pad
   stop();
@@ -642,7 +666,7 @@ async function update() {
   $("fwlog").textContent = "";
   $("fwprogress").hidden = false;
   $("fwprogress").value = 0;
-  fwSay("Updating: keep this page open and the pad on.");
+  fwSay(msg("ui.app.updating_keep_this_page_open_and_the_pad_on"));
   let up = null, written = false;
   try {
     up = await intoUpdater(p, linksOf(p.link), fwLog);
@@ -655,14 +679,14 @@ async function update() {
     await attach(fresh);
   } catch (error) {
     updating = false;
-    fwLog(`${written ? "not found again" : "failed"}: ${error.message || error}`);
+    fwLog(`${written ? msg("ui.app.not_found_again") : "failed"}: ${error.message || error}`);
     $("fwprogress").hidden = true;
     fwSay("");
-    if (written) problem(p.usb ? "The new firmware is written and started, but did not come back on USB: go Back and connect again."
-      : "The new firmware is written and started, but did not come back in config mode " +
-      "(an older updater does not ask for it): go Back, hold Home+M for 3 s and connect again.");
-    else problem(`The update failed. The pad stays in its updater: go Back and connect to it (${p.usb ? "over USB" :
-      "it advertises as \"… Update\""}) and update again, or press Home to go back to its app if that is still whole.`);
+    if (written) problem(p.usb ? msg("ui.app.the_new_firmware_is_written_and_started_but_did_not_come_back_on_usb_go_back_and_connect_again")
+      : msg("ui.app.the_new_firmware_is_written_and_started_but_did_not_come_back_in_config_mode") +
+      msg("ui.app.an_older_updater_does_not_ask_for_it_go_back_hold_home_m_for_3_s_and_connect_again"));
+    else problem(`The update failed. The pad stays in its updater: go Back and connect to it (${p.usb ? msg("ui.app.over_usb") :
+      msg("ui.app.it_advertises_as_update")}) and update again, or press Home to go back to its app if that is still whole.`);
     up?.close();
   }
 }
@@ -720,7 +744,7 @@ $("updatertest").addEventListener("click", () => runTest(async () => {
   disconnect();
   $("tests").hidden = false;
   for (const b of document.querySelectorAll("#tests .needs-pad")) b.hidden = true;
-  testLog(`The updater round trip ended the link; go Back and connect again${p.usb ? "" : " (Home+M)"} for more.`);
+  testLog(`The updater round trip ended the link; go Back and connect again${p.usb ? "" : msg("ui.app.home_m")} for more.`);
 }));
 $("package").addEventListener("change", (e) => {
   const file = e.target.files[0];
@@ -738,9 +762,9 @@ function unavailable(id, why) {
   $(id).disabled = true;
   $(id).querySelector("span").textContent = why;
 }
-if (!bluetooth.available()) unavailable("connect", android ? "This phone has no Bluetooth."
-  : "This browser has no Web Bluetooth: use Chrome or Edge.");
-if (!usb.available()) unavailable("connectusb", "This browser has no WebHID: use Chrome or Edge.");
+if (!bluetooth.available()) unavailable("connect", android ? msg("ui.app.this_phone_has_no_bluetooth")
+  : msg("ui.app.this_browser_has_no_web_bluetooth_use_chrome_or_edge"));
+if (!usb.available()) unavailable("connectusb", msg("ui.app.this_browser_has_no_webhid_use_chrome_or_edge"));
 // The app lists the devices itself (USB, and Bluetooth with its switch on);
 // a browser needs the user to choose a pad.
 for (const id of ["managefw", "homelist"]) $(id).hidden = !pads;
@@ -748,3 +772,4 @@ for (const id of ["connect", "connectusb"]) $(id).hidden = !!pads;
 history.replaceState(null, "");    // a reload starts at home
 show("home");
 bundledPackage();
+mock?.controls({ usb: () => connect(usb), bluetooth: () => connect(bluetooth), save, loadPackage, unloadPackage, update });

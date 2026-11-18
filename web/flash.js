@@ -1,3 +1,5 @@
+import { ask, tell } from "./dialogs.js";
+import { text as msg } from "./i18n.js";
 // Devices and firmware, in the Android app only (link-android.js:
 // libjollymaam over JNI, the app's Bluetooth scan).
 //
@@ -15,8 +17,8 @@ import { $, h, svg } from "./dom.js";
 const OURS = 0, BITDO = 1, JIELI = 2, STOCK = 3;
 const ACTION = { none: 0, install: 1, restore: 2, reboot: 3 };
 // libjollymaam's progress words, as steps.
-const STEPS = { "reading": "Backing up the flash", "writing": "Writing", "writing and reading back": "Writing and checking",
-  "erasing, writing and reading back": "Writing and checking", "upgrading": "Upgrading" };
+const STEPS = { "reading": msg("ui.flash.backing_up_the_flash"), "writing": msg("ui.flash.writing"), "writing and reading back": msg("ui.flash.writing_and_checking"),
+  "erasing, writing and reading back": msg("ui.flash.writing_and_checking"), "upgrading": msg("ui.flash.upgrading") };
 const BLE_KEY = "jollymaam-bluetooth";
 // A pad over Bluetooth not heard for this long has left config mode (it
 // advertises every 20-30 ms while in it).
@@ -28,25 +30,26 @@ const ICONS = {
   usb: "M480-80q-33 0-56.5-23.5T400-160q0-21 11-39t29-29v-92H320q-33 0-56.5-23.5T240-400v-92q-18-9-29-27t-11-41q0-33 23.5-56.5T280-640q33 0 56.5 23.5T360-560q0 23-11 41t-29 27v92h120v-320h-80l120-160 120 160h-80v320h120v-80h-40v-160h160v160h-40v80q0 33-23.5 56.5T640-320H520v92q19 10 29.5 28t10.5 40q0 33-23.5 56.5T480-80Z",
 };
 function icon(kind) {
-  const s = svg("svg", { class: "transport", viewBox: "0 -960 960 960", "aria-label": kind === "ble" ? "Bluetooth" : "USB" });
+  const s = svg("svg", { class: "transport", viewBox: "0 -960 960 960", "aria-label": kind === "ble" ? msg("ui.flash.bluetooth") : msg("ui.flash.usb") });
   s.append(svg("path", { d: ICONS[kind] }));
   return s;
 }
 
 // What a device is, in a few words.
 function stateOf(dev) {
-  if (dev.ble) return "Bluetooth, config mode";
+  if (dev.ble) return msg("ui.flash.bluetooth_config_mode");
   const id = dev.id;
   if (!id) return "…";
   if (id.error) return id.error;
-  if (id.kind === OURS) return id.updater ? "In its updater" : `JollyMaam ${id.build}`;
+  if (id.kind === OURS) return id.updater ? msg("ui.flash.in_its_updater") : `JollyMaam ${id.build}`;
   if (id.kind === JIELI) return `Jieli ${id.chip} boot loader`;
-  if (id.kind === BITDO) return "8BitDo boot loader";
+  if (id.kind === BITDO) return msg("ui.flash.8bitdo_boot_loader");
   return `Stock firmware${id.mode ? `, ${id.mode}` : ""}`;
 }
-const nameOf = (dev) => dev.ble ? dev.ble.name : dev.id?.name || (dev.id?.kind === JIELI ? "A pad" : dev.d.name);
+const nameOf = (dev) => dev.ble ? dev.ble.name : dev.id?.name || (dev.id?.kind === JIELI ? msg("ui.flash.a_pad") : dev.d.name);
 
 export function setupPads(flasher, bluetooth, app) {
+  const bleKey = bluetooth.storageKey ?? BLE_KEY;
   let targets = null, timer = null, scanning = false, busy = false;
   let where = "off";            // "home", "manage", "off"
   let selected = null;          // Manage Firmware: the device's key
@@ -55,7 +58,7 @@ export function setupPads(flasher, bluetooth, app) {
   const bleFound = new Map();   // Bluetooth: key -> {key, ble: {name, id}, heard: ms}
   let stopScan = null;
   let bleOn = true;             // on unless switched off
-  try { bleOn = localStorage.getItem(BLE_KEY) !== "0"; } catch { /* no storage: on */ }
+  try { bleOn = localStorage.getItem(bleKey) !== "0"; } catch { /* no storage: on */ }
   let blePermission = null;     // null: not answered yet; then true or false
 
   const log = (line) => { $("flashlog").textContent += line + "\n"; };
@@ -117,7 +120,7 @@ export function setupPads(flasher, bluetooth, app) {
         s.disabled = !yes;
         if (!yes) s.checked = false;
       }
-      if (!yes) $("blenote").textContent = "Bluetooth access was not granted: allow Nearby devices for JollyMaam in the phone's settings.";
+      for (const help of document.querySelectorAll(".ble-permission-help")) help.hidden = yes;
       return yes;
     });
     return asking;
@@ -142,7 +145,7 @@ export function setupPads(flasher, bluetooth, app) {
 
   function setBle(on) {
     bleOn = on;
-    try { localStorage.setItem(BLE_KEY, on ? "1" : "0"); } catch { /* not kept */ }
+    try { localStorage.setItem(bleKey, on ? "1" : "0"); } catch { /* not kept */ }
     for (const s of document.querySelectorAll("input.bleswitch")) s.checked = on;
     $("blenote").textContent = "";
     bleScan(on).then(draw);
@@ -168,14 +171,14 @@ export function setupPads(flasher, bluetooth, app) {
     if (where === "manage" && !all.some((x) => x.key === selected)) selected = all.length === 1 ? all[0].key : null;
     const list = where === "manage" ? $("managedevices") : $("homedevices");
     const ble = bleOn && blePermission !== false;
-    const key = JSON.stringify([where, selected, all.map((x) => [x.key, stateOf(x), nameOf(x)]), !!targets, ble]);
+    const key = JSON.stringify([where, selected, all.map((x) => [x.key, stateOf(x), nameOf(x), can(x).why]), !!targets, ble]);
     if (key === shown) return;
     shown = key;
-    const hint = ble && !bleFound.size ? "Hold Home+M for 3 s to show a pad here over Bluetooth." : "";
-    list.replaceChildren(...all.map((dev) => button([h("div", {}, h("strong", {}, nameOf(dev)), h("span", {}, stateOf(dev))),
+    const hint = ble && !bleFound.size ? msg("ui.flash.hold_home_m_for_3_s_to_show_a_pad_here_over_bluetooth") : "";
+    list.replaceChildren(...all.map((dev) => button([h("div", {}, h("strong", {}, nameOf(dev)), h("span", {}, stateOf(dev)), where === "manage" && can(dev).why ? h("span", { class: "device-package-status" }, can(dev).why) : null),
       icon(dev.ble ? "ble" : "usb")], () => tap(dev), `choice device${dev.key === selected && where === "manage" ? " selected" : ""}`)),
-    ...(all.length ? [] : [h("p", { class: "muted" }, where === "manage" ? "Plug in a pad over USB." :
-      "A pad running JollyMaam shows up here when it is plugged in over USB.")]),
+    ...(all.length ? [] : [h("p", { class: "muted" }, where === "manage" ? msg("ui.flash.plug_in_a_pad_over_usb") :
+      msg("ui.flash.a_pad_running_jollymaam_shows_up_here_when_it_is_plugged_in_over_usb"))]),
     ...(hint ? [h("p", { class: "muted" }, hint)] : []));
     if (where === "manage") cards();
   }
@@ -209,8 +212,8 @@ export function setupPads(flasher, bluetooth, app) {
     return {
       install: flash && fits, backup: flash, restore: flash,
       upgrade: id.kind === OURS && !!forProduct(id.product),
-      why: !targets ? "No firmware package." : !reachable ? `Not from this mode. By hand: ${id.byHand || "see the pad's documentation"}.`
-        : !fits ? `The package has no firmware for ${id.product || `a ${id.chip} pad`}.` : "",
+      why: !targets ? "" : !reachable ? msg("ui.flash.manual_bootloader")
+        : !fits ? msg("ui.flash.package_missing_device", { device: id.product || id.chip }) : "",
     };
   }
 
@@ -220,7 +223,6 @@ export function setupPads(flasher, bluetooth, app) {
     $("dobackup").disabled = !c.backup;
     $("doupgrade").disabled = !c.upgrade;
     $("dorestore").disabled = !c.restore;
-    $("managenote").textContent = c.why;
   }
 
   // An action page for the selected device.
@@ -244,31 +246,31 @@ export function setupPads(flasher, bluetooth, app) {
   };
 
   $("doinstall").addEventListener("click", () => {
-    const [backupRow, backup] = toggle("Back up first", true);
-    const dev = open("Install", [h("p", {}, "This wipes all settings and the flash."), backupRow,
-      h("div", { class: "actions" }, button("Install", () => {
-        if (confirm("Install JollyMaam? This wipes all settings and the flash.")) {
-          session(dev, "Install", { backup: backup.checked, action: ACTION.install }, "Installed: the pad starts JollyMaam.");
+    const [backupRow, backup] = toggle(msg("ui.flash.back_up_first"), true);
+    const dev = open(msg("ui.flash.install"), [h("p", {}, msg("ui.flash.this_wipes_all_settings_and_the_flash")), backupRow,
+      h("div", { class: "actions" }, button(msg("ui.flash.install"), () => {
+        if (ask(msg("ui.flash.install_jollymaam_this_wipes_all_settings_and_the_flash"))) {
+          session(dev, msg("ui.flash.install"), { backup: backup.checked, action: ACTION.install }, msg("ui.flash.installed_the_pad_starts_jollymaam"));
         }
       }))]);
   });
   $("dobackup").addEventListener("click", () => {
-    const dev = open("Backup", [h("div", { class: "actions" }, button("Back up", () =>
-      session(dev, "Backup", { backup: true, action: ACTION.none }, "Backed up; the pad is in its boot loader.")))]);
+    const dev = open(msg("ui.flash.backup"), [h("div", { class: "actions" }, button(msg("ui.flash.back_up"), () =>
+      session(dev, msg("ui.flash.backup"), { backup: true, action: ACTION.none }, msg("ui.flash.backed_up_the_pad_is_in_its_boot_loader"))))]);
   });
   $("doupgrade").addEventListener("click", () => {
-    const dev = open("Upgrade", [h("div", { class: "actions" }, button("Upgrade", () => upgrade(dev)))]);
+    const dev = open(msg("ui.flash.upgrade"), [h("div", { class: "actions" }, button(msg("ui.flash.upgrade"), () => upgrade(dev)))]);
   });
   $("dorestore").addEventListener("click", () => {
     // A backup of this pad or a vendor image (a raw write of a whole
     // backup is the command line's: jollymaam install --raw).
     const file = h("input", { type: "file", hidden: true });
-    const dev = open("Restore", [h("div", { class: "actions" }, button("Choose a file…", () => file.click()), file)]);
+    const dev = open(msg("ui.flash.restore"), [h("div", { class: "actions" }, button(msg("ui.flash.choose_a_file"), () => file.click()), file)]);
     file.addEventListener("change", async () => {
       const f = file.files[0];
       file.value = "";
-      if (!f || !confirm(`Write ${f.name} to the pad?`)) return;
-      session(dev, "Restore", { action: ACTION.restore, image: new Uint8Array(await f.arrayBuffer()) }, "Restored: the pad starts it.");
+      if (!f || !ask(`Write ${f.name} to the pad?`)) return;
+      session(dev, msg("ui.flash.restore"), { action: ACTION.restore, image: new Uint8Array(await f.arrayBuffer()) }, msg("ui.flash.restored_the_pad_starts_it"));
     });
   });
 
@@ -311,11 +313,11 @@ export function setupPads(flasher, bluetooth, app) {
 
   function upgrade(dev) {
     if (dev.ble) {
-      return job("Upgrade", () => app.upgradeBle(dev.ble.id, log, (done, total) => showProgress("upgrading", done, total)),
-        "Upgraded: the pad starts it.");
+      return job(msg("ui.flash.upgrade"), () => app.upgradeBle(dev.ble.id, log, (done, total) => showProgress("upgrading", done, total)),
+        msg("ui.flash.upgraded_the_pad_starts_it"));
     }
     const id = dev.id;
-    return job("Upgrade", () => flasher.update(dev.d.device, id.product, id.uid, showProgress, log), "Upgraded: the pad starts it.");
+    return job(msg("ui.flash.upgrade"), () => flasher.update(dev.d.device, id.product, id.uid, showProgress, log), msg("ui.flash.upgraded_the_pad_starts_it"));
   }
 
   // ---- the package ----
@@ -323,10 +325,10 @@ export function setupPads(flasher, bluetooth, app) {
   async function setPackage(name, bytes) {
     targets = null;
     try {
-      targets = await flasher.package(bytes);
+      if (bytes) targets = await flasher.package(bytes);
     } catch { /* app.js said why */ }
     $("padhow").replaceChildren(...(targets ? [h("ul", {}, targets.map((t) =>
-      h("li", {}, h("strong", {}, t.name), t.byHand ? `: ${t.byHand}.` : ": plug it in.")))] : []));
+      h("li", {}, h("strong", {}, t.name), t.byHand ? `: ${t.byHand}.` : msg("ui.flash.plug_it_in"))))] : []));
     shown = "";
     draw();
   }

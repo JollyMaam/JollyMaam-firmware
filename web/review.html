@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JollyMaam UI review</title><link rel="stylesheet" href="review.css"></head>
+<body>
+<header><div><strong>JollyMaam UI review</strong><small>Workflow states · real UI · simulated hardware</small></div>
+<label>Preview <select id="platform"><option value="browser">Pure web UI</option><option value="android">Android app</option></select></label>
+<label>Board <select id="board"><option value="c2">Cyclone 2</option><option value="n2">Nova 2 Lite</option><option value="u2cw">Ultimate 2C Wireless</option><option value="u2cb">Ultimate 2C Bluetooth</option></select></label>
+<button id="copy">Copy state reference</button><button id="export">Export review notes</button></header>
+<div class="workspace">
+<aside><nav id="workflows" aria-label="Workflows"></nav><hr>
+<label for="search">Find states or messages</label><input id="search" type="search" placeholder="e.g. refused, backup, package">
+<label class="filter">Show <select id="filter"><option value="all">All states</option><option value="error">Errors</option><option value="success">Successes</option><option value="confirmation">Confirmations</option></select></label>
+<div id="index" aria-label="Message and state index"></div></aside>
+<main>
+<section class="heading"><div><h1 id="title"></h1><p id="identity"></p></div><a id="open" target="_blank" rel="noopener">Open full mock UI ↗</a></section>
+<p id="platform-info" class="hint"></p>
+<div id="variants"><label id="operation-label" hidden>Action <select id="operation"><option value="install">Install</option><option value="backup">Backup</option><option value="upgrade">Upgrade</option><option value="restore">Restore</option></select></label> <label id="variant-label" hidden>Error detail <select id="variant"></select></label></div>
+<details open id="mapfold"><summary>Workflow map — click any state or follow a branch</summary><div id="map" role="region" aria-label="Workflow state map"></div></details>
+<div id="transitions" aria-label="Next transitions"></div>
+<div class="inspection"><section class="preview"><div id="status" role="status">Loading preview…</div><iframe id="preview" title="Live production UI preview"></iframe></section>
+<section class="messages"><h2>Messages in this state</h2><div id="messages"></div>
+<label for="notes">What should change?</label><textarea id="notes" placeholder="Write a change request for this state, then copy the reference or export your notes."></textarea>
+<p id="notice" role="status"></p><hr><h3>Message coverage</h3><p id="coverage"></p><button id="scan">Collect all messages</button>
+<p class="hint">Messages are read from the rendered UI, including confirmations and validation. “Mock:” details come from simulated failures. This covers the mapped workflows; OS dialogs and unmapped native diagnostics are not an exhaustive message inventory.</p>
+<details><summary>English catalog</summary><p class="hint">Search all catalog wording, including labels not tied to a mapped state.</p><input id="catalog-search" type="search" aria-label="Search English catalog"><div id="catalog"></div></details>
+</section></div>
+</main></div>
+<script type="module" src="review.js"></script></body></html>

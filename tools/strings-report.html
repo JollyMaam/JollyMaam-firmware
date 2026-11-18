@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JollyMaam strings</title>
+<style>
+body{font:16px system-ui;margin:2em;max-width:1100px;background:#fafafa;color:#222}
+header{position:sticky;top:0;background:#fafafa;padding:1em 0;border-bottom:1px solid #bbb}
+input{width:55%;padding:.6em}button,select{padding:.6em}article{padding:1em 0;border-bottom:1px solid #ddd}
+code{overflow-wrap:anywhere}textarea{display:block;box-sizing:border-box;width:100%;min-height:4em;margin-top:.5em;font:inherit;padding:.5em}
+pre{white-space:pre-wrap;overflow-wrap:anywhere}small{display:block;color:#555}
+</style>
+<h1>JollyMaam strings</h1>
+<p>Edit the English entries, then download <code>en.json</code> and replace <code>web/strings/en.json</code> in the repository.
+This report is a snapshot; regenerate it after source or catalog changes. Edits are kept only in this page until downloaded.</p>
+<p>Setting entries group labels, help and enum choices by firmware name. Keys stay fixed when wording changes.
+Parameters such as <code>{count}</code> must remain in the text.</p>
+<header><input id="search" placeholder="Search keys or text" aria-label="Search strings">
+<select id="mode" aria-label="View"><option value="catalog">English catalog</option><option value="audit">Source audit</option></select>
+<button id="download">Download en.json</button><small id="count"></small></header>
+<p id="note" hidden>The source audit shows all lines containing quotes in web code, Android code and resources, and the native library.
+It intentionally includes protocol values, logs, comments and other text that does not need translation.
+Use it to inspect remaining messages; these rows are source references, not editable catalog entries.</p>
+<main></main>
+<script>
+const data = /* DATA */;
+const search=document.getElementById('search'), mode=document.getElementById('mode'), main=document.querySelector('main');
+function draw(){
+ const query=search.value.toLowerCase(), audit=mode.value==='audit';
+ document.getElementById('note').hidden=!audit;
+ const entries=(audit?data.audit:Object.entries(data.catalog)).filter(([key,value])=>(key+' '+value).toLowerCase().includes(query));
+ document.getElementById('count').textContent=entries.length+' matching entries';
+ main.replaceChildren();
+ for(const [key,value] of entries){
+  const article=document.createElement('article'), title=document.createElement('code');title.textContent=key;article.append(title);
+  const text=document.createElement(audit?'pre':'textarea');
+  if(audit)text.textContent=value;
+  else {text.value=value;text.setAttribute('aria-label',key);text.oninput=()=>{data.catalog[key]=text.value;};}
+  article.append(text);main.append(article);
+ }
+}
+search.oninput=mode.onchange=draw;
+document.getElementById('download').onclick=()=>{
+ const url=URL.createObjectURL(new Blob([JSON.stringify(data.catalog,null,2)+'\n'],{type:'application/json'}));
+ const link=document.createElement('a');link.href=url;link.download='en.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+draw();
+</script></html>

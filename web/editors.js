@@ -1,3 +1,5 @@
+import { ask, tell } from "./dialogs.js";
+import { text as msg } from "./i18n.js";
 // The remap and curve editors.  Each works on the text form of its fields
 // (the inputs the settings table has for map, rules and curve points, in
 // padtool's text) and writes back into them, so staging, defaults and
@@ -13,11 +15,11 @@ import {
 // The keys in the editor's order (padgui's).
 const KEY_ORDER = ["south", "east", "west", "north", "up", "down", "left", "right", "l1", "r1", "l2", "r2", "l4", "r4",
   "l3", "r3", "minus", "plus", "home", "m", "capture"];
-const TRIGGER_LABELS = { held: "is held", held_for: "is held for", pressed: "is pressed", released: "is released",
-  tapped: "is tapped under", double_tapped: "is double-tapped within" };
-const EFFECT_LABELS = { hold: "hold", turbo: "turbo", nothing: "nothing", tap: "tap", toggle_hold: "toggle hold",
-  toggle_turbo: "toggle turbo", turbo_modifier: "turbo modifier", toggle_turbo_modifier: "toggle turbo modifier",
-  macro: "play macro, again while held", play_macro: "play macro once", toggle_macro: "loop macro on/off" };
+const TRIGGER_LABELS = { held: msg("ui.editors.is_held"), held_for: msg("ui.editors.is_held_for"), pressed: msg("ui.editors.is_pressed"), released: msg("ui.editors.is_released"),
+  tapped: msg("ui.editors.is_tapped_under"), double_tapped: msg("ui.editors.is_double_tapped_within") };
+const EFFECT_LABELS = { hold: "hold", turbo: "turbo", nothing: "nothing", tap: "tap", toggle_hold: msg("ui.editors.toggle_hold"),
+  toggle_turbo: msg("ui.editors.toggle_turbo"), turbo_modifier: msg("ui.editors.turbo_modifier"), toggle_turbo_modifier: msg("ui.editors.toggle_turbo_modifier"),
+  macro: msg("ui.editors.play_macro_again_while_held"), play_macro: msg("ui.editors.play_macro_once"), toggle_macro: msg("ui.editors.loop_macro_on_off") };
 
 const SHORT = ["m", "l1", "r1", "l2", "r2", "l4", "r4", "l3", "r3"];
 const role = (k) => (SHORT.includes(k) ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1));
@@ -56,9 +58,9 @@ export function remapEditor(io) {
   const body = h("tbody");
   const ruleList = h("div", { class: "rules" });
   const used = h("span", { class: "muted" });
-  const addRule = h("button", { type: "button", class: "small" }, "Add rule");
-  const resetRules = h("button", { type: "button", class: "small", title: "the rules back to the default" }, "Rules to default");
-  const rulesHead = h("div", { class: "actions" }, h("strong", {}, "Rules"), used, addRule, resetRules);
+  const addRule = h("button", { type: "button", class: "small" }, msg("ui.editors.add_rule"));
+  const resetRules = h("button", { type: "button", class: "small", title: msg("ui.editors.the_rules_back_to_the_default") }, msg("ui.editors.rules_to_default"));
+  const rulesHead = h("div", { class: "actions" }, h("strong", {}, msg("ui.editors.rules")), used, addRule, resetRules);
   const problem = h("p", { class: "error", hidden: true });
 
   const load = () => {
@@ -68,7 +70,7 @@ export function remapEditor(io) {
       problem.hidden = true;
       return true;
     } catch (error) {
-      problem.textContent = `${error.message}: use "All to default" to start again`;
+      problem.textContent = msg("ui.editors.invalid_rules", { error: error.message });
       problem.hidden = false;
       return false;
     }
@@ -112,11 +114,11 @@ export function remapEditor(io) {
     addRule.disabled = rules.length >= count;
   }
 
-  const keyOptions = () => [...KEY_ORDER.map((k) => [k, keyLabel(io.layout, k)]), ["", "Nothing"]];
+  const keyOptions = () => [...KEY_ORDER.map((k) => [k, keyLabel(io.layout, k)]), ["", msg("ui.editors.nothing_1")]];
 
   function outputsPicker(r) {
     const summary = h("summary", {});
-    const show = () => { summary.textContent = r.outputs.map((k) => keyLabel(io.layout, k)).join(" + ") || "Choose keys…"; };
+    const show = () => { summary.textContent = r.outputs.map((k) => keyLabel(io.layout, k)).join(" + ") || msg("ui.editors.choose_keys"); };
     show();
     const boxes = KEY_ORDER.map((k) => {
       const box = h("input", { type: "checkbox" });
@@ -135,15 +137,15 @@ export function remapEditor(io) {
   function macroPicker(r) {
     const names = io.macroNames?.() ?? [];
     const options = Array.from({ length: Math.max(names.length, r.macro, 1) }, (_, i) =>
-      [String(i + 1), i < names.length ? `${i + 1}: ${names[i] || "(no name)"}` : `${i + 1}: (none yet)`]);
+      [String(i + 1), i < names.length ? `${i + 1}: ${names[i] || msg("ui.editors.no_name")}` : `${i + 1}: (none yet)`]);
     return select(options, String(r.macro), (v) => change(() => { r.macro = Number(v); }, false), { "aria-label": "macro" });
   }
 
   // A rule: × When [KEY] [is held…] [time ms] [effect] [keys] at [rate] Hz.
   function ruleEditor(r) {
-    const remove = h("button", { type: "button", class: "small", title: "delete this rule" }, "×");
+    const remove = h("button", { type: "button", class: "small", title: msg("ui.editors.delete_this_rule") }, "×");
     remove.addEventListener("click", () => change(() => { rules = rules.filter((x) => x !== r); }));
-    const parts = [remove, h("span", {}, "When"),
+    const parts = [remove, h("span", {}, msg("ui.editors.when")),
       select(KEY_ORDER.map((k) => [k, keyLabel(io.layout, k)]), r.input, (v) => change(() => { r.input = v; }, false),
         { "aria-label": "input" }),
       select(TRIGGERS.slice(1).map((t) => [t, TRIGGER_LABELS[t]]), r.trigger, (v) => change(() => {
@@ -167,7 +169,7 @@ export function remapEditor(io) {
     if (TURBO.includes(r.effect)) {
       parts.push(h("span", {}, "at"), select([...Array.from({ length: MAX_HZ }, (_, i) => [String(i + 1), String(i + 1)]), ["0", "max"]],
         String(r.rate), (v) => change(() => { r.rate = Number(v); }), { "aria-label": "rate" }),
-        h("span", {}, r.rate ? "Hz" : "(every report)"));
+        h("span", {}, r.rate ? "Hz" : msg("ui.editors.every_report")));
     }
     return h("div", { class: "rule" }, ...parts);
   }
@@ -175,9 +177,9 @@ export function remapEditor(io) {
   function keyRow(k) {
     const sends = select(keyOptions(), base[k] ?? "", (v) => change(() => { base[k] = v || null; }, false),
       { "aria-label": `${keyLabel(io.layout, k)} maps to` });
-    const reset = h("button", { type: "button", class: "small" }, "Back to default");
+    const reset = h("button", { type: "button", class: "small" }, msg("ui.editors.back_to_default"));
     reset.addEventListener("click", () => change(() => { base[k] = def.base[k]; }));
-    const menu = nameMenu(keyLabel(io.layout, k), h("p", { class: "muted" }, "What this key sends while held."), reset);
+    const menu = nameMenu(keyLabel(io.layout, k), h("p", { class: "muted" }, msg("ui.editors.what_this_key_sends_while_held")), reset);
     const tr = h("tr", { class: "key" }, h("th", { scope: "row" }, menu), h("td", {}, sends));
     markCells.set(k, { tr, reset });
     return tr;
@@ -214,17 +216,17 @@ export function remapEditor(io) {
     input.addEventListener("change", reload);
   }
 
-  const presets = select([["", "Preset…"], ...Object.entries(PRESETS).map(([n, [label]]) => [n, label])], "", (v) => {
+  const presets = select([["", msg("ui.editors.preset")], ...Object.entries(PRESETS).map(([n, [label]]) => [n, label])], "", (v) => {
     if (!v || !base) return;
     change(() => { base = applyPreset(base, v); });
     presets.value = "";
-  }, { "aria-label": "mapping preset" });
-  const exportButton = h("button", { type: "button", class: "small" }, "Export preset…");
+  }, { "aria-label": msg("ui.editors.mapping_preset") });
+  const exportButton = h("button", { type: "button", class: "small" }, msg("ui.editors.export_preset"));
   exportButton.addEventListener("click", () => {
     try {
       download(`${io.file}.json`, JSON.stringify(exportPreset(io.name?.value ?? "", encodeMap(base), encodeRules(rules, count)), null, 1) + "\n");
     } catch (error) {
-      alert(`Fix the rules first: ${error.message}`);
+      tell(`Fix the rules first: ${error.message}`);
     }
   });
   const file = h("input", { type: "file", accept: ".json,application/json", hidden: true });
@@ -237,19 +239,19 @@ export function remapEditor(io) {
       if (io.name) setControl(io.name, got.name);
       change(() => { base = decodeMap(got.map); rules = decodeRules(got.rules); });
     } catch (error) {
-      alert(`${f.name}: ${error.message}`);
+      tell(`${f.name}: ${error.message}`);
     }
   });
-  const importButton = h("button", { type: "button", class: "small" }, "Import preset…");
+  const importButton = h("button", { type: "button", class: "small" }, msg("ui.editors.import_preset"));
   importButton.addEventListener("click", () => file.click());
-  const all = h("button", { type: "button", class: "small", title: "the whole mapping and every rule back to the default" }, "All to default");
+  const all = h("button", { type: "button", class: "small", title: msg("ui.editors.the_whole_mapping_and_every_rule_back_to_the_default") }, msg("ui.editors.all_to_default"));
   all.addEventListener("click", () => io.resetAll());
 
   draw();
   const root = h("div", { class: "remap" },
     h("div", { class: "actions" }, presets, importButton, exportButton, all, file),
-    h("p", { class: "muted" }, "A key sends itself unless changed; map it to Nothing to drop its own press. ",
-      "Rules add to what the keys send. A trigger mapped to a trigger keeps its analog value."),
+    h("p", { class: "muted" }, msg("ui.editors.a_key_sends_itself_unless_changed_map_it_to_nothing_to_drop_its_own_press"),
+      msg("ui.editors.rules_add_to_what_the_keys_send_a_trigger_mapped_to_a_trigger_keeps_its_analog_value")),
     problem,
     h("table", { class: "keys" }, h("colgroup", {}, h("col", { class: "c-key" }), h("col")),
       body),
@@ -266,7 +268,7 @@ export function remapEditor(io) {
 
 const TAP_MS = 40;               // a new tap's press, long enough for any host to see
 const ROOM = 4096;               // the editor's room: more than the pad's shows as too long, not as an error
-const STEP_KINDS = [["press", "Press"], ["release", "Release"], ["pause", "Pause"]];
+const STEP_KINDS = [["press", msg("ui.editors.press")], ["release", msg("ui.editors.release")], ["pause", msg("ui.editors.pause")]];
 const kindOfStep = (s) => (s.key === null ? "pause" : s.press ? "press" : "release");
 
 // The keys each macro holds down at its end: what the pad lets go of then
@@ -340,9 +342,9 @@ export function macroEditor(io) {
   let macros = [], writing = false;
   const list = h("div", { class: "macros" });
   const used = h("span", { class: "muted" });
-  const add = h("button", { type: "button", class: "small" }, "Add macro");
-  const reset = h("button", { type: "button", class: "small" }, io.base ? "Macros to default" : "Use the base's");
-  const head = h("div", { class: "actions" }, h("strong", {}, "Macros"), used, add, reset);
+  const add = h("button", { type: "button", class: "small" }, msg("ui.editors.add_macro"));
+  const reset = h("button", { type: "button", class: "small" }, io.base ? msg("ui.editors.macros_to_default") : msg("ui.editors.use_the_base_s"));
+  const head = h("div", { class: "actions" }, h("strong", {}, msg("ui.editors.macros")), used, add, reset);
   const problem = h("p", { class: "error", hidden: true });
   const savedText = io.saved ? showMacros(io.saved) : null;
 
@@ -398,7 +400,7 @@ export function macroEditor(io) {
   const keyOptions = () => KEY_ORDER.map((k) => [k, keyLabel(io.layout, k)]);
 
   function stepRow(m, s, i) {
-    const ms = h("input", { type: "number", min: 0, max: 60000, step: MACRO_UNIT_MS, class: "ms", "aria-label": "wait before, ms" });
+    const ms = h("input", { type: "number", min: 0, max: 60000, step: MACRO_UNIT_MS, class: "ms", "aria-label": msg("ui.editors.wait_before_ms") });
     ms.value = String(s.ms);
     ms.addEventListener("change", () => change(() => { s.ms = Math.max(0, Math.round(Number(ms.value) || 0)); }));
     const kind = select(STEP_KINDS, kindOfStep(s), (v) => change(() => {
@@ -414,7 +416,7 @@ export function macroEditor(io) {
     up.addEventListener("click", () => change(() => { m.steps.splice(i - 1, 0, ...m.steps.splice(i, 1)); }));
     const down = h("button", { type: "button", class: "small", title: "later", disabled: i === m.steps.length - 1 }, "↓");
     down.addEventListener("click", () => change(() => { m.steps.splice(i + 1, 0, ...m.steps.splice(i, 1)); }));
-    const del = h("button", { type: "button", class: "small", title: "delete this step" }, "×");
+    const del = h("button", { type: "button", class: "small", title: msg("ui.editors.delete_this_step") }, "×");
     del.addEventListener("click", () => change(() => { m.steps.splice(i, 1); }));
     return h("div", { class: "rule step" }, del, ...parts, h("span", { class: "grow" }), up, down);
   }
@@ -430,7 +432,7 @@ export function macroEditor(io) {
       change(() => { m.name = v; }, false);
     });
     const text = macroText(stepText(m), `Macro ${n + 1} text`);
-    text.placeholder = "+south 40 -south";
+    text.placeholder = msg("ui.editors.south_40_south");
     text.addEventListener("input", () => {
       m.draft = text.value;
       try {
@@ -440,50 +442,51 @@ export function macroEditor(io) {
       write(); counts();
     });
     text.addEventListener("change", () => { if (text.checkValidity()) draw(); });
-    const take = h("button", { type: "button", class: "small", hidden: !io.quickMacro }, "Import from Quick Settings");
+    const take = h("button", { type: "button", class: "small quick-macro-import", hidden: !io.quickMacro, disabled: !io.quickMacroAvailable?.() }, msg("ui.editors.import_from_quick_settings"));
     take.addEventListener("click", async () => {
+      take.dataset.importing = "true";
       take.disabled = true;
       try {
         const q = await io.quickMacro();
-        if (!q) throw new Error("No completed quick-settings macro.");
+        if (!q) return;
         if (!macros.includes(m)) return;
         const raw = new Uint8Array(q.steps.length + 2);
         raw[0] = q.steps.length + 1; raw.set(q.steps, 2);
         change(() => { m.steps = decodeMacros(raw)[0].steps; delete m.draft; });
       } catch (error) { problem.textContent = error.message; problem.hidden = false; }
-      finally { take.disabled = false; }
+      finally { delete take.dataset.importing; take.disabled = !io.quickMacroAvailable?.(); }
     });
-    const del = h("button", { type: "button", class: "small", title: "delete this macro (rules playing a later one then play the one before it)" }, "Delete");
+    const del = h("button", { type: "button", class: "small", title: msg("ui.editors.delete_this_macro_rules_playing_a_later_one_then_play_the_one_before_it") }, msg("ui.editors.delete"));
     del.addEventListener("click", () => {
       change(() => { macros.splice(n, 1); });
     });
-    const up = h("button", { type: "button", class: "small", title: "make it the macro before (rules play by number)", disabled: !n }, "↑");
+    const up = h("button", { type: "button", class: "small", title: msg("ui.editors.make_it_the_macro_before_rules_play_by_number"), disabled: !n }, "↑");
     up.addEventListener("click", () => change(() => { macros.splice(n - 1, 0, ...macros.splice(n, 1)); }));
     // Adding: a tap of a key (its press and release), a press, a release, a pause.
-    const key = select(keyOptions(), m.steps.findLast((s) => s.key)?.key ?? "south", () => {}, { "aria-label": "key to add" });
+    const key = select(keyOptions(), m.steps.findLast((s) => s.key)?.key ?? "south", () => {}, { "aria-label": msg("ui.editors.key_to_add") });
     const gap = () => (m.steps.length ? 48 : 0);   // 4 ms steps
-    const tap = h("button", { type: "button", class: "small" }, "+ Tap");
+    const tap = h("button", { type: "button", class: "small" }, msg("ui.editors.tap_1"));
     tap.addEventListener("click", () => change(() => {
       m.steps.push({ ms: gap(), key: key.value, press: true }, { ms: TAP_MS, key: key.value, press: false });
     }));
-    const press = h("button", { type: "button", class: "small" }, "+ Press");
+    const press = h("button", { type: "button", class: "small" }, msg("ui.editors.press_1"));
     press.addEventListener("click", () => change(() => { m.steps.push({ ms: gap(), key: key.value, press: true }); }));
-    const release = h("button", { type: "button", class: "small" }, "+ Release");
+    const release = h("button", { type: "button", class: "small" }, msg("ui.editors.release_1"));
     release.addEventListener("click", () => change(() => { m.steps.push({ ms: gap(), key: key.value, press: false }); }));
-    const pause = h("button", { type: "button", class: "small", title: "a wait at the end: the gap before it can run again" }, "+ Pause");
+    const pause = h("button", { type: "button", class: "small", title: msg("ui.editors.a_wait_at_the_end_the_gap_before_it_can_run_again") }, msg("ui.editors.pause_1"));
     pause.addEventListener("click", () => change(() => { m.steps.push({ ms: 200, key: null, press: false }); }));
     const left = stuck(m);
     const { total } = timeline(m);
     return h("section", { class: "box macro" },
       h("div", { class: "actions" }, h("strong", {}, `Macro ${n + 1}`), name,
-        h("span", { class: "tag frombase", title: "the base remap's: editing makes the macros this remap's own" }, "from base"),
+        h("span", { class: "tag frombase", title: msg("ui.editors.the_base_remap_s_editing_makes_the_macros_this_remap_s_own") }, msg("ui.editors.from_base")),
         h("span", { class: "muted" }, `${m.steps.length} step${m.steps.length === 1 ? "" : "s"}, ${total} ms`), up, del, take),
-      h("label", {}, "Macro text (waits in milliseconds)", text),
+      h("label", {}, msg("ui.editors.macro_text_waits_in_milliseconds"), text),
       macroGraph(m, io.layout),
       h("div", { class: "steps" }, m.steps.length ? m.steps.map((s, i) => stepRow(m, s, i))
-        : h("p", { class: "muted" }, "No steps yet: add a tap below.")),
+        : h("p", { class: "muted" }, msg("ui.editors.no_steps_yet_add_a_tap_below"))),
       left.length ? h("p", { class: "muted" }, `Still held at the end: ${left.map((k) => keyLabel(io.layout, k)).join(", ")} ` +
-        "(let go when the run ends).") : null,
+        msg("ui.editors.let_go_when_the_run_ends")) : null,
       h("div", { class: "actions add" }, key, tap, press, release, pause));
   }
 
@@ -530,10 +533,10 @@ export function curveEditor(input, count, enabled) {
   const W = 100, PAD = 4;
   let points = null;
   const graph = svg("svg", { viewBox: `${-PAD} ${-PAD} ${W + 2 * PAD} ${W + 2 * PAD}`, class: "curve", role: "img",
-    "aria-label": "stick curve: drag to draw" });
+    "aria-label": msg("ui.editors.stick_curve_drag_to_draw") });
   const preset = select([...CURVE_PRESETS.map((n) => [n, n]), ["custom", "custom"]], "custom", (v) => {
     if (v !== "custom") set(curvePreset(v, count));
-  }, { "aria-label": "curve preset" });
+  }, { "aria-label": msg("ui.editors.curve_preset") });
   preset.querySelector('option[value="custom"]').disabled = true;
 
   const set = (p) => {
@@ -619,8 +622,8 @@ export function curveEditor(input, count, enabled) {
   input.addEventListener("change", draw);
   draw();
   return h("div", { class: "curvebox" }, graph,
-    h("div", { class: "curveside" }, h("label", {}, "Preset ", preset),
-      h("p", { class: "muted" }, "Drag on the graph: up or down moves a point, sideways draws through the points. " +
-        "Arrow keys move a selected point."),
-      h("label", { class: "muted" }, "Points (output 0–255 at 1/16 … 15/16 of the travel)"), input));
+    h("div", { class: "curveside" }, h("label", {}, msg("ui.editors.preset_1"), preset),
+      h("p", { class: "muted" }, msg("ui.editors.drag_on_the_graph_up_or_down_moves_a_point_sideways_draws_through_the_points") +
+        msg("ui.editors.arrow_keys_move_a_selected_point")),
+      h("label", { class: "muted" }, msg("ui.editors.points_output_0_255_at_1_16_15_16_of_the_travel")), input));
 }

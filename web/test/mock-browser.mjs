@@ -1,0 +1,40 @@
+// Optional browser smoke test: start an HTTP server and Chromium with
+// --remote-debugging-port=9226, then node this file [CDP endpoint] [page URL].
+import assert from 'node:assert/strict';
+const endpoint=process.argv[2] || 'http://127.0.0.1:9226';
+const base=process.argv[3] || 'http://127.0.0.1:8796/web/';
+const pages=await(await fetch(endpoint+'/json')).json();
+const ws=new WebSocket(pages[0].webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);
+let id=0;const pending=new Map(),errors=[],dialogs=[];
+ws.onmessage=async e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result);}else if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.text+': '+m.params.exceptionDetails.exception?.description);else if(m.method==='Page.javascriptDialogOpening'){dialogs.push(m.params.message);await send('Page.handleJavaScriptDialog',{accept:true});}};
+function send(method,params={}){return new Promise((resolve,reject)=>{const n=++id;pending.set(n,{resolve,reject});ws.send(JSON.stringify({id:n,method,params}));});}
+await send('Page.enable');await send('Runtime.enable');
+const run=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception.description);return r.result.value;};
+const wait=async expr=>{for(let i=0;i<120;i++){if(await run(expr))return;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out: '+expr);};
+const go=async query=>{await send('Page.navigate',{url:base+'?'+query});await wait('!!document.getElementById("mock-controls")');};
+await go('mock=normal');
+await run('[...document.querySelectorAll("#mock-controls button")].find(b=>b.textContent==="Connect mock USB").click()');
+await wait('document.querySelectorAll("#settings tr").length>100');
+console.log('browser settings rows',await run('document.querySelectorAll("#settings tr").length'));
+assert.equal(await run('performance.getEntriesByType("resource").some(e=>/link-(web|hid|android)\\.js/.test(e.name))'),false);
+assert.equal(await run('document.querySelectorAll(".error:not([hidden])").length'),0);
+await run('[...document.querySelectorAll("#mock-controls button")].find(b=>b.textContent==="Expand settings and help").click()');
+await wait('document.querySelectorAll("#settings details[open]").length>20');
+assert.equal(await run('document.querySelectorAll(".macroedit").length'),9);
+await go('mock=normal&view=app');
+await wait('document.querySelectorAll("#homedevices button").length>0');
+await run('document.getElementById("managefw").click()');
+await wait('document.querySelectorAll("#managedevices button").length>0');
+await run('document.querySelector("#managedevices button").click()');
+await wait('!document.getElementById("doinstall").disabled');
+await run('document.getElementById("doinstall").click()');
+await run('[...document.querySelectorAll("#actionbody button")].find(b=>b.textContent==="Install").click()');
+await wait('document.getElementById("actionresult").textContent.includes("Installed")');
+console.log('app action',await run('document.getElementById("actionresult").textContent'));
+await go('mock=empty');await run('[...document.querySelectorAll("#mock-controls button")].find(b=>b.textContent==="Connect mock USB").click()');
+await wait('document.getElementById("settings").textContent.includes("no settings")');
+await go('mock=read_error');await run('[...document.querySelectorAll("#mock-controls button")].find(b=>b.textContent==="Connect mock USB").click()');
+await new Promise(r=>setTimeout(r,700));assert.ok((await run('document.getElementById("settings-error").textContent')).includes('could not be read'));
+assert.deepEqual(errors,[]);
+console.log('Mock UI browser smoke passed; no hardware modules imported.');
+ws.close();

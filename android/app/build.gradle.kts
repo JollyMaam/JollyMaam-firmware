@@ -35,7 +35,7 @@ android {
 val firmwareZip = rootProject.file(providers.gradleProperty("firmwareZip").orNull ?: "../build/firmware.zip")
 val webAssets = tasks.register<Sync>("webAssets") {
     doFirst { if (!firmwareZip.isFile) throw GradleException("$firmwareZip is missing: run make firmware (or pass -PfirmwareZip=)") }
-    from(rootProject.file("../web")) { include("*.html", "*.js", "*.css") }
+    from(rootProject.file("../web")) { include("*.html", "*.js", "*.css", "strings/*.json", "mock-fields.json") }
     from(firmwareZip) { rename { "firmware.zip" } }
     into(layout.buildDirectory.dir("generated/web-assets/web"))
 }

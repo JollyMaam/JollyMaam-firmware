@@ -193,6 +193,10 @@ test("commands run one at a time", async () => {
 test("enum names the board does not take stay empty", () => {
   const f = decodeField(describe(FIELDS[0]));
   assert.equal(showValue(f, Uint8Array.of(1)), "1");
+  const current = decodeField(describe({ ...FIELDS[0], help: "" }));
+  assert.equal(current.help, "");
+  assert.deepEqual(current.names, f.names);
+  assert.deepEqual(current.defaults, f.defaults);
 });
 
 test("the write test's items fill the data exactly", async () => {

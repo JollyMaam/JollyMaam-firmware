@@ -9,44 +9,57 @@
 <body>
 <header>
   <div class="actions">
-    <button id="back" type="button" class="secondary" hidden>Back</button>
+    <button id="back" type="button" class="secondary" hidden data-i18n="ui.page.back">Back</button>
     <h1>JollyMaam</h1>
   </div>
   <div id="savebar" hidden>
     <span id="savecount"></span>
-    <button id="undo" type="button" class="secondary">Discard</button>
-    <button id="save" type="button">Save</button>
+    <button id="undo" type="button" class="secondary" data-i18n="ui.page.discard">Discard</button>
+    <button id="save" type="button" data-i18n="ui.page.save">Save</button>
   </div>
 </header>
 <main>
   <section id="home">
     <div class="choices">
-      <button id="managefw" type="button" class="choice" hidden><strong>Manage Firmware</strong></button>
-      <button id="connect" type="button" class="choice"><strong>Configure over Bluetooth</strong>
-        <span>Hold Home+M for 3 s to put the pad in config mode, then choose it.</span></button>
-      <button id="connectusb" type="button" class="choice"><strong>Configure over USB</strong>
-        <span>Plug the pad in, then choose it.</span></button>
+      <button id="managefw" type="button" class="choice" hidden><strong data-i18n="ui.page.manage_firmware">Manage Firmware</strong></button>
+      <button id="connect" type="button" class="choice"><strong data-i18n="ui.page.configure_over_bluetooth">Configure over Bluetooth</strong>
+        <span data-i18n="ui.page.hold_home_m_for_3_s_to_put_the_pad_in_config_mode_then_choose_it">Hold Home+M for 3 s to put the pad in config mode, then choose it.</span></button>
+      <button id="connectusb" type="button" class="choice"><strong data-i18n="ui.page.configure_over_usb">Configure over USB</strong>
+        <span data-i18n="ui.page.plug_the_pad_in_then_choose_it">Plug the pad in, then choose it.</span></button>
     </div>
     <div id="homelist" hidden>
-      <div class="listhead"><h2>Devices</h2>
-        <label class="check">Bluetooth <input type="checkbox" class="switch bleswitch"></label></div>
+      <div class="listhead"><h2 data-i18n="ui.page.devices">Devices</h2>
+        <div class="ble-controls">
+          <details class="ble-permission-help" hidden>
+            <summary aria-label="Bluetooth permission">?</summary>
+            <p data-i18n="ui.flash.nearby_devices_denied">Permission not granted (Nearby Devices)</p>
+          </details>
+          <label class="check"><span data-i18n="ui.page.bluetooth">Bluetooth</span> <input type="checkbox" class="switch bleswitch"></label>
+        </div>
+      </div>
       <div id="homedevices" class="choices one"></div>
     </div>
   </section>
   <section id="manage" hidden>
     <div class="choices cards">
-      <button id="doinstall" type="button" class="choice"><strong>Install</strong></button>
-      <button id="dobackup" type="button" class="choice"><strong>Backup</strong></button>
-      <button id="doupgrade" type="button" class="choice"><strong>Upgrade</strong></button>
-      <button id="dorestore" type="button" class="choice"><strong>Restore</strong></button>
-      <button id="loadpkg" type="button" class="choice"><strong>Load Package</strong><span id="loadpkginfo"></span></button>
+      <button id="doinstall" type="button" class="choice"><strong data-i18n="ui.page.install">Install</strong></button>
+      <button id="dobackup" type="button" class="choice"><strong data-i18n="ui.page.backup">Backup</strong></button>
+      <button id="doupgrade" type="button" class="choice"><strong data-i18n="ui.page.upgrade">Upgrade</strong></button>
+      <button id="dorestore" type="button" class="choice"><strong data-i18n="ui.page.restore">Restore</strong></button>
+      <button id="loadpkg" type="button" class="choice"><strong data-i18n="ui.page.load_package_button">Load Package</strong><span id="loadpkginfo"></span></button>
     </div>
-    <p id="managenote" class="muted"></p>
-    <div class="listhead"><h2>Devices</h2>
-      <label class="check">Bluetooth <input type="checkbox" class="switch bleswitch"></label></div>
+    <div class="listhead"><h2 data-i18n="ui.page.devices">Devices</h2>
+      <div class="ble-controls">
+        <details class="ble-permission-help" hidden>
+          <summary aria-label="Bluetooth permission">?</summary>
+          <p data-i18n="ui.flash.nearby_devices_denied">Permission not granted (Nearby Devices)</p>
+        </details>
+        <label class="check"><span data-i18n="ui.page.bluetooth">Bluetooth</span> <input type="checkbox" class="switch bleswitch"></label>
+      </div>
+    </div>
     <p id="blenote" class="muted"></p>
     <div id="managedevices" class="choices one"></div>
-    <details><summary>Getting a pad ready</summary><div id="padhow"></div></details>
+    <details><summary data-i18n="ui.page.getting_a_pad_ready">Getting a pad ready</summary><div id="padhow"></div></details>
     <input id="package" type="file" accept=".zip,application/zip" hidden>
   </section>
   <section id="action" hidden>
@@ -56,37 +69,37 @@
     <div id="padjob" hidden>
       <p class="pending"><span class="spinner" aria-hidden="true"></span><span id="padstep"></span></p>
       <progress id="flashprogress" max="1" value="0"></progress>
-      <p class="muted">Keep the pad plugged in.</p>
+      <p class="muted" data-i18n="ui.page.keep_the_pad_plugged_in">Keep the pad plugged in.</p>
     </div>
     <p id="actionresult" role="status"></p>
-    <details id="flashdetails"><summary>Details</summary><pre id="flashlog" class="mono"></pre></details>
+    <details id="flashdetails"><summary data-i18n="ui.page.details">Details</summary><pre id="flashlog" class="mono"></pre></details>
   </section>
   <section id="config" hidden>
   <section id="identity"></section>
   <p id="status" class="muted"></p>
   <details id="firmware" hidden>
-    <summary>Firmware update</summary>
+    <summary data-i18n="ui.page.firmware_update">Firmware update</summary>
     <p class="muted">A firmware package (firmware.zip, from <code>make firmware</code>) has an update
       for each pad; the page takes this pad's, restarts the pad into its updater, writes it and
       starts it.</p>
     <p class="package"><span id="pkginfo"></span></p>
     <p id="fwinfo" class="muted"></p>
     <div class="actions">
-      <button id="fwload" type="button" class="secondary">Load package…</button>
-      <button id="update" type="button" disabled>Update</button>
+      <button id="fwload" type="button" class="secondary" data-i18n="ui.page.load_package">Load package…</button>
+      <button id="update" type="button" disabled data-i18n="ui.page.update">Update</button>
     </div>
     <progress id="fwprogress" max="1" value="0" hidden></progress>
     <pre id="fwlog" class="mono"></pre>
   </details>
   <details id="tests" hidden>
-    <summary>Link tests</summary>
-    <p class="muted">Write sizes: sends the most data a command takes, in 20- and 96-byte writes, as
+    <summary data-i18n="ui.page.link_tests">Link tests</summary>
+    <p class="muted" data-i18n="ui.page.write_sizes_sends_the_most_data_a_command_takes_in_20_and_96_byte_writes_as_settings_for_a_target_that_does_not_exist_nothing_is_staged_and_checks_the_pad_parsed_all_of_it_updater_round_trip_restarts_the_pad_into_its_updater_connects_again_without_the_chooser_reads_it_and_reboots_it_back_into_its_app_the_link_ends">Write sizes: sends the most data a command takes, in 20- and 96-byte writes, as
       settings for a target that does not exist (nothing is staged), and checks the pad parsed all of it.
       Updater round trip: restarts the pad into its updater, connects again without the chooser,
       reads it, and reboots it back into its app (the link ends).</p>
     <div class="actions">
-      <button id="writetest" type="button" class="needs-pad">Write sizes</button>
-      <button id="updatertest" type="button" class="needs-pad">Updater round trip</button>
+      <button id="writetest" type="button" class="needs-pad" data-i18n="ui.page.write_sizes">Write sizes</button>
+      <button id="updatertest" type="button" class="needs-pad" data-i18n="ui.page.updater_round_trip">Updater round trip</button>
     </div>
     <pre id="testlog" class="mono"></pre>
   </details>
@@ -94,6 +107,6 @@
   </section>
 </main>
 <div id="toast" role="status" hidden></div>
-<script type="module" src="app.js"></script>
+<script type="module" src="start.js"></script>
 </body>
 </html>

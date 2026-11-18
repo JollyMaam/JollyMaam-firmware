@@ -346,6 +346,8 @@ export class Pad {
   // size: over USB, the answer's (USB_ANSWER by default).
   cmd(sub, { arg = 0, data = new Uint8Array(0), timeoutMs = 3000, answer = !(this.id?.updater && data.length && !this.usb),
     quick = false, size = USB_ANSWER[sub] ?? 0 } = {}) {
+    // A simulated transport can hold a command for manual UI inspection.
+    timeoutMs = this.link.commandTimeoutMs ?? timeoutMs;
     const run = () => this.usb ? this.#usb(sub, arg, data, size, timeoutMs, answer)
       : this.#run(sub, arg, data, timeoutMs, answer, quick);
     const result = this.chain.then(run, run);
@@ -462,6 +464,11 @@ export class Pad {
       out.push(...got.entries);
       if (!got.entries.length || out.length >= got.count) return out;
     }
+  }
+
+  async hasQuickMacro() {
+    const header = await this.cmd(CMD.QUICK_MACRO);
+    return header.length >= 4 && header[0] === 1 && header[3] > 0 && !(header[3] & 1);
   }
 
   async quickMacro() {
