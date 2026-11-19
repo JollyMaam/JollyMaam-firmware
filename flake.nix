@@ -42,6 +42,8 @@
           JAVA_HOME = pkgs.jdk17.home;
           ANDROID_NDK_HOME = "${sdk}/libexec/android-sdk/ndk/27.2.12479018";
           ANDROID_HOME = "${sdk}/libexec/android-sdk";
+          # Gradle refuses two different SDK paths; CI runners set this one.
+          ANDROID_SDK_ROOT = "${sdk}/libexec/android-sdk";
           GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${sdk}/libexec/android-sdk/build-tools/34.0.0/aapt2";
         };
       python = pkgs.python3.withPackages (p: [ p.tkinter p.bleak ]);
