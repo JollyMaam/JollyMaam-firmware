@@ -1,0 +1,45 @@
+# The web page on GitHub Pages, from a published release: web/ at its tag and
+# the release's firmware.zip beside it (the page fetches ./firmware.zip;
+# release downloads have no CORS headers). Run by hand to redeploy the
+# latest release. Repository settings: Pages, source "GitHub Actions".
+name: Pages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - id: tag
+        run: echo "tag=${TAG:-$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName)}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+      - uses: actions/checkout@v7
+        with: { ref: '${{ steps.tag.outputs.tag }}' }
+      # The same files the APK carries (android/app/build.gradle.kts, webAssets).
+      - run: |
+          mkdir site
+          (cd web && cp --parents -- *.html *.js *.css strings/*.json mock-fields.json ../site/)
+          gh release download "${{ steps.tag.outputs.tag }}" -R "$GITHUB_REPOSITORY" -p firmware.zip -D site
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with: { path: site }
+      - id: deploy
+        uses: actions/deploy-pages@v5

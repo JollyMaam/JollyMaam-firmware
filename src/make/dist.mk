@@ -11,4 +11,4 @@ endif
 
 dist-android: ANDROID_FIRMWARE_ZIP = $(abspath $(DIST_DIR))/firmware.zip
 dist-android: dist android
-	$(Q)cp $(O)/android/app/outputs/apk/debug/app-debug.apk $(DIST_DIR)/jollymaam-android-debug.apk
+	$(Q)cp $(ANDROID_APK) $(DIST_DIR)/jollymaam-android-$(ANDROID_BUILD_TYPE).apk

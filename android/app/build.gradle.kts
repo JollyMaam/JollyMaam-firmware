@@ -1,6 +1,11 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 val outputRoot = providers.gradleProperty("outputDir").orNull ?: "../build/android"
 layout.buildDirectory.set(rootProject.file(outputRoot).resolve("app"))
+// Versions are dates, YYYY.MM.DD.n (make passes git describe as appVersion);
+// the version code is YYYYMMDDnn, so every release installs over the last.
+val appVersion = providers.gradleProperty("appVersion").orNull ?: "dev"
+val appVersionCode = Regex("""^(\d{4})\.(\d{2})\.(\d{2})\.(\d{1,2})\b""").find(appVersion)
+    ?.destructured?.let { (y, m, d, n) -> ((y.toInt() * 100 + m.toInt()) * 100 + d.toInt()) * 100 + n.toInt() } ?: 1
 android {
     namespace = "dev.jollymaam.app"
     compileSdk = 35
@@ -9,8 +14,8 @@ android {
         applicationId = "dev.jollymaam.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = appVersionCode
+        versionName = appVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         externalNativeBuild { cmake { arguments += listOf("-DANDROID_STL=none", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON") } }
@@ -25,7 +30,18 @@ android {
         storeFile = rootProject.file("debug.keystore"); storePassword = "android"
         keyAlias = "androiddebugkey"; keyPassword = "android"
     }
-    buildTypes { release { isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") } }
+    // The release key stays out of the repo: a PKCS12 file and its password
+    // from the environment (CI: secrets). Losing it means users must uninstall
+    // to update, so keep a copy offline.
+    signingConfigs.create("release") {
+        System.getenv("JOLLYMAAM_KEYSTORE")?.let { storeFile = file(it) }
+        storePassword = System.getenv("JOLLYMAAM_KEYSTORE_PASSWORD"); keyPassword = storePassword
+        keyAlias = "jollymaam"
+    }
+    buildTypes { release {
+        isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        signingConfig = signingConfigs.getByName("release")
+    } }
     // A developer utility with an English UI; settings text also comes from firmware.
     lint { warningsAsErrors = true; disable += setOf("HardcodedText", "SetTextI18n") }
     // The page, web/, as assets/web: MainActivity serves it to the WebView.

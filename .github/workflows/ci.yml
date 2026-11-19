@@ -1,0 +1,117 @@
+# Build and test everything on every push and PR; on a release tag
+# (YYYY.MM.DD.n, tools/release-tag.sh), also attach
+# the files to a draft release. Publishing that draft deploys the web page
+# (pages.yml). Each step runs the same command as a local build; this file
+# only adds checkout, caches and artifacts.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['[0-9][0-9][0-9][0-9].*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: BUILD_ID is git describe, the version on a release tag.
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - run: git submodule update --init --depth 1
+      - uses: ./.github/actions/nix
+        with: { key: dev }
+      - uses: actions/cache@v6
+        with:
+          path: |
+            external/toolchains
+            !external/toolchains/downloads
+          key: toolchains-${{ hashFiles('external/fetch-toolchains.sh') }}
+      - run: external/fetch-toolchains.sh
+      # --profile keeps the shell from the cache's garbage collection.
+      - run: nix develop --profile "$RUNNER_TEMP/dev" -c make -j"$(nproc)" all test
+      - uses: actions/upload-artifact@v7
+        with: { name: firmware, path: build/firmware.zip, if-no-files-found: error }
+
+  jollymaam:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { platform: linux, file: jollymaam, asset: jollymaam-linux-x86_64 }
+          - { platform: windows, file: jollymaam.exe, asset: jollymaam.exe }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/nix
+        with: { key: '${{ matrix.platform }}', max-size: 2G }
+      - run: |
+          nix build .#${{ matrix.platform }} -o result
+          mkdir -p out && cp result/bin/${{ matrix.file }} out/${{ matrix.asset }}
+      - uses: actions/upload-artifact@v7
+        with: { name: '${{ matrix.asset }}', path: 'out/${{ matrix.asset }}', if-no-files-found: error }
+
+  android:
+    needs: firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/nix
+        with: { key: android, max-size: 8G }
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+      - uses: actions/download-artifact@v8
+        with: { name: firmware, path: firmware }
+      # Release-signed when the key is there (not on PRs from forks); a
+      # release tag must have it.
+      - env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          JOLLYMAAM_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          type=debug
+          if [ -n "$KEYSTORE" ]; then
+            export JOLLYMAAM_KEYSTORE=$RUNNER_TEMP/release.p12
+            base64 -d <<<"$KEYSTORE" > "$JOLLYMAAM_KEYSTORE"
+            type=release
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "::error::a release tag needs the ANDROID_KEYSTORE secret"; exit 1
+          fi
+          nix develop .#android --profile "$RUNNER_TEMP/android" -c \
+            make android ANDROID_BUILD_TYPE=$type ANDROID_FIRMWARE_ZIP="$PWD/firmware/firmware.zip"
+          mkdir -p out && cp build/android/app/outputs/apk/$type/app-$type.apk out/jollymaam.apk
+      - uses: actions/upload-artifact@v7
+        with: { name: jollymaam.apk, path: out/jollymaam.apk, if-no-files-found: error }
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [firmware, jollymaam, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with: { path: out, merge-multiple: true }
+      - run: cd out && sha256sum -- * > SHA256SUMS
+      - uses: actions/attest-build-provenance@v4
+        with: { subject-path: 'out/*' }
+      # A draft: flash and test these files, then publish it on GitHub.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" out/* -R "$GITHUB_REPOSITORY" \
+            --draft --verify-tag --generate-notes --title "$TAG"
