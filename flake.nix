@@ -1,6 +1,6 @@
 {
   description = "JollyMaam controller firmware, host updater and Android development";
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/1e93de5f6da447ce71322128505012dbfc2429d9";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   outputs = { self, nixpkgs }:
     let
       system = "x86_64-linux";
