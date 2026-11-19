@@ -27,8 +27,16 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      # The published release, or by hand the latest published one (drafts
+      # and pre-releases do not count).
       - id: tag
-        run: echo "tag=${TAG:-$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName)}" >> "$GITHUB_OUTPUT"
+        run: |
+          tag=${TAG:-$(gh release view -R "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)}
+          if [ -z "$tag" ]; then
+            echo "::error::no published release yet: publish one, then this runs by itself"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
         env:
           TAG: ${{ github.event.release.tag_name }}
       - uses: actions/checkout@v7
