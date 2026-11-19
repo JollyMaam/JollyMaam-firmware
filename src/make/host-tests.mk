@@ -19,10 +19,11 @@
 # Every source with a UNITTEST block and its own main (libjollymaam's are
 # src/lib/rules.mk's).
 HOST_TESTS := $(shell grep -rlE --include='*.c' 'if(n)?def UNITTEST' src | xargs grep -l '^int main')
-HOST_TESTS := $(sort $(filter-out src/platform/telink/att_telink.c src/lib/%,$(HOST_TESTS)))
+HOST_TESTS := $(sort $(filter-out src/platform/telink/att_telink.c src/lib/% src/platform/jieli/btctrler/bd19/%,$(HOST_TESTS)))
 # Tests that decode real firmware replies with libjollymaam.
 HOST_TESTS_LIBJOLLYMAAM := src/core/usb.c src/updater/updater.c
-# Our controller's tests link without the rest of the controller.
+# Our controller's tests link without the rest of the controller; BD19-only
+# sources are tested by controller-test (tools/btctrler/vanilla.mk).
 HOST_TESTS_BTCTRLER := $(filter src/platform/jieli/btctrler/%,$(HOST_TESTS))
 HOST_TESTS_BTCTRLER_LDFLAGS := -no-pie -Wl,--unresolved-symbols=ignore-all
 

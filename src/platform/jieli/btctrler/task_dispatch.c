@@ -2,20 +2,31 @@
 #include <stdio.h>
 #include "btctrler/glue.h"
 
+#ifdef CONFIG_CPU_BD19
+#define TASK_CODE __attribute__((section(".hci_controller_code")))
+#define TASK_LOCAL static
+#else
+#define TASK_CODE
+#define TASK_LOCAL
+#endif
+
 int os_taskq_pend(const char *name, int *msg, int count);
 int os_taskq_post_type(const char *name, int type, int argc, int *argv);
 extern BTCTRLER_CONFIG int config_btctler_le_roles;
-__attribute__((section(".hci_controller_data"))) void (*bt_testbox_update_msg_handle)(int);
 /* Our change: hci_controller_init() spends about 250 ms busy in the radio's
  * calibration (bt_rf_init); the platform runs it below the app's own tasks
- * and puts this task back after. */
-void btctrlermod_init_begin(void);
-void btctrlermod_init_end(void);
+ * and puts this task back after. BR23 only: BD19's task is in task_lifecycle.c,
+ * and its kernel has no vTaskPrioritySet. */
+#if !defined(CONFIG_CPU_BD19) || defined(UNITTEST)
+TASK_LOCAL __attribute__((section(".hci_controller_data")))
+void (*bt_testbox_update_msg_handle)(int);
 
-void btctrler_testbox_update_msg_handle_register(void (*handle)(int))
+TASK_CODE void btctrler_testbox_update_msg_handle_register(void (*handle)(int))
 { bt_testbox_update_msg_handle = handle; }
+#endif
 
-void btctrler_task(void)
+#if !defined(CONFIG_CPU_BD19) || defined(UNITTEST)
+TASK_CODE void btctrler_task(void)
 {
     int msg[14];
     btctrlermod_init_begin();
@@ -60,15 +71,16 @@ void btctrler_task(void)
         hci_controller_run_loop();
     }
 }
+#endif
 
 /* The SDK's thread owner callbacks intentionally do no work, except resume,
  * which posts a wake message without retrying or propagating its result. */
-int bt_task_create(void (*fun)(u8), u8 priority)
+TASK_LOCAL TASK_CODE int bt_task_create(void (*fun)(u8), u8 priority)
 { (void)fun; (void)priority; return 0; }
-int bt_task_delete(u8 priority) { (void)priority; return 0; }
-int bt_task_suspend(u8 priority, u8 timeout)
+TASK_LOCAL TASK_CODE int bt_task_delete(u8 priority) { (void)priority; return 0; }
+TASK_LOCAL TASK_CODE int bt_task_suspend(u8 priority, u8 timeout)
 { (void)priority; (void)timeout; return 0; }
-int bt_task_resume(void)
+TASK_LOCAL TASK_CODE int bt_task_resume(void)
 { os_taskq_post_type("btctrler", 255, 0, NULL); return 0; }
 
 /* The owner of the controller task's threads (thread_create): the HCI
@@ -82,7 +94,7 @@ __attribute__((section(".hci_controller_data"))) struct thread_owner bt_task_thr
 static int hook_putchar(int c);
 #define putchar hook_putchar
 #endif
-__attribute__((weak)) int btctrl_msg_qfull_hook(u8 qfull_cnt)
+TASK_CODE __attribute__((weak)) int btctrl_msg_qfull_hook(u8 qfull_cnt)
 { (void)qfull_cnt; putchar('H'); return 0; }
 
 #ifdef UNITTEST

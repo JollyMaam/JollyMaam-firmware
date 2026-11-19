@@ -4,8 +4,7 @@
  * including one register read per result byte.  aes128_start_enc loads key
  * and plaintext as big-endian words from byte 15 down; ccm_memory_v2 loads
  * little-endian words from byte 0 up and returns the MIC big-endian.
- * aes_init (which would install aes_irq_handler), aes_irq_handler and
- * aes_hw_test have no caller and are not carried over. */
+ * AES IRQ setup and the SDK's hardware self-test are also retained. */
 #include <stdint.h>
 #include "btctrler/glue.h"
 
@@ -18,6 +17,8 @@ extern const u8 log_tag_const_i_AES;
 #endif
 
 #define AES_LOG(...) do { if (log_tag_const_i_AES) log_print(2, (const char *)0, __VA_ARGS__); } while (0)
+
+extern void request_irq(u8 index, u8 priority, void (*handler)(void), u8 cpu_id);
 
 #ifdef UNITTEST
 /* The test supplies a model of the register file. */
@@ -48,6 +49,75 @@ _Static_assert(offsetof(JL_AES_TypeDef, TAGRES3) == 64, "AES TAGRES3");
 
 /* Status of the last CCM run; the SDK clears it and never sets it. */
 u8 ccm_status;
+
+#ifdef UNITTEST
+#define AES_IRQ
+#else
+#define AES_IRQ __attribute__((interrupt))
+#endif
+
+static void aes_irq_handler(void) AES_IRQ;
+static void aes_irq_handler(void)
+{
+    u32 status = AES_READ(CON);
+    if ((s32)status < 0)
+        AES_WRITE(CON, AES_READ(CON) | 0x40000000u);
+}
+
+void aes_init(void)
+{
+    request_irq(40, 0, aes_irq_handler, 0);
+}
+
+/* The SDK diagnostic drives the block's CCM DMA path directly.  Its test
+ * vectors and register order are preserved; callers must provide idle HW. */
+void aes_hw_test(void)
+{
+    u8 source[27], destination[27];
+    for (unsigned i = 0; i < sizeof source; ++i) source[i] = 0x54;
+    for (unsigned i = 0; i < sizeof destination; ++i) destination[i] = 0x54;
+
+    AES_WRITE(CTCNT, 27);
+    AES_WRITE(KEY, 0x87e2fa74u);
+    AES_LOG("[Info]: [AES]key 0 : 0x%x\r\n", 0x87e2fa74u);
+    AES_WRITE(KEY, 0x36c3ca9du);
+    AES_LOG("[Info]: [AES]key 1 : 0x%x\r\n", 0x36c3ca9du);
+    AES_WRITE(KEY, 0x212776b7u);
+    AES_LOG("[Info]: [AES]key 2 : 0x%x\r\n", 0x212776b7u);
+    AES_WRITE(KEY, 0xbd493d5eu);
+    AES_LOG("[Info]: [AES]key 3 : 0x%x\r\n", 0xbd493d5eu);
+    AES_WRITE(CON, 0x810);
+    while (AES_READ(CON) & 32) { }
+    AES_WRITE(TAGLEN, 4);
+    AES_WRITE(NONCE, 0x0000057c);
+    AES_LOG("[Info]: [AES]nonce 0 : 0x%x\r\n", 0x0000057c);
+    AES_WRITE(NONCE, 0xc1bb0600u);
+    AES_LOG("[Info]: [AES]nonce 1 : 0x%x\r\n", 0xc1bb0600u);
+    AES_WRITE(NONCE, 0x763bc635u);
+    AES_LOG("[Info]: [AES]nonce 2 : 0x763bc635u\r\n", 0x763bc635u);
+    AES_WRITE(NONCE, 0x5b);
+    AES_LOG("[Info]: [AES]nonce 3 : 0x%x\r\n", 0x5bu);
+    AES_WRITE(HEADER, 1);
+    AES_WRITE(SRCADR, (u32)(uintptr_t)source);
+    AES_WRITE(DSTADR, (u32)(uintptr_t)destination);
+    AES_WRITE(CON, AES_READ(CON) | 0x10000);
+    while ((s32)AES_READ(CON) >= 0) { }
+    AES_WRITE(CON, AES_READ(CON) | 0x40000000u);
+    if (log_tag_const_i_AES) {
+        log_print(2, NULL, "[Info]: [AES]MIC : 0x%x\r\n", AES_READ(TAGRES0));
+        printf_buf(destination, sizeof destination);
+    }
+    if (AES_READ(TAGRES0) != 0x5981008au && log_tag_const_i_AES)
+        log_print(2, NULL, "[Info]: [AES]>>>>>>>>>>>>>>>>>>>>Error\r\n");
+
+    AES_WRITE(SRCADR, (u32)(uintptr_t)destination);
+    AES_WRITE(DSTADR, (u32)(uintptr_t)source);
+    AES_WRITE(CON, AES_READ(CON) | 0x40000);
+    while ((s32)AES_READ(CON) >= 0) { }
+    AES_WRITE(CON, AES_READ(CON) | 0x40000000u);
+    if (AES_READ(TAGRES0) != 0x5981008au && log_tag_const_i_AES)
+        log_print(2, NULL, "[Info]: [AES]>>>>>>>>>>>>>>>>>Error2\r\n");
+}
 
 /* b[0] least significant. */
 static u32 word_le(const u8 *b) { return (u32)b[2] << 16 | (u32)b[3] << 24 | (u32)b[1] << 8 | b[0]; }
@@ -298,6 +368,13 @@ void aes_reg_write(unsigned offset, u32 value)
     }
 }
 static int irq_depth, irq_enabled, asserts, printed, logged;
+static void (*installed_irq)(void);
+static int installed_irq_index, installed_irq_priority, installed_irq_cpu;
+void request_irq(u8 index, u8 priority, void (*handler)(void), u8 cpu_id)
+{
+    installed_irq_index = index; installed_irq_priority = priority;
+    installed_irq = handler; installed_irq_cpu = cpu_id;
+}
 void local_irq_disable(void) { CHECK(!irq_depth); irq_depth = 1; }
 void local_irq_enable(void) { CHECK(irq_depth); irq_depth = 0; irq_enabled++; }
 void btctrler_assert_failed(const char *what, int value) { (void)what; (void)value; asserts++; }
@@ -340,6 +417,36 @@ int main(void)
     /* One register read per result byte; CON polled once per wait. */
     CHECK(reads[3] == 4 && reads[4] == 4 && reads[5] == 4 && reads[6] == 4 && reads[0] == 2);
     CHECK(!printed && !logged);
+
+    /* The public aes128_test arrays are the SDK's IR data (not derived from
+     * the implementation); validate the AES block vector independently. */
+    static const u8 sdk_key[16] = {0x4c,0x68,0x38,0x41,0x39,0xf5,0x74,0xd8,0x36,0xbc,0xf3,0x4e,0x9d,0xfb,0x01,0xbf};
+    static const u8 sdk_pt[16] = {0x02,0x13,0x24,0x35,0x46,0x57,0x68,0x79,0xac,0xbd,0xce,0xdf,0xe0,0xf1,0x02,0x13};
+    static const u8 sdk_ct[16] = {0x99,0xad,0x1b,0x52,0x26,0xa3,0x7e,0x3e,0x05,0x8e,0x3b,0x8e,0x27,0xc2,0xc6,0x66};
+    u8 sdk_out[16];
+    restart();
+    aes128_start_enc((u8 *)sdk_key, (u8 *)sdk_pt, sdk_out);
+    CHECK(!memcmp(sdk_out, sdk_ct, 16));
+
+    /* SDK init registers IRQ 40 at priority 0; the handler acknowledges the
+     * completion bit only when the peripheral status is negative. */
+    aes_init();
+    CHECK(installed_irq && installed_irq_index == 40 && installed_irq_priority == 0 && installed_irq_cpu == 0);
+    con = 0;
+    installed_irq();
+    CHECK(con == 0);
+    con = 0x80000000u;
+    installed_irq();
+    CHECK(con == 0xc0000000u);
+
+    /* The direct CCM self-test uses the SDK's expected MIC vector and two
+     * DMA directions.  Values derive from the BD19 IR constants. */
+    restart();
+    tagres[0] = 0x5981008au;
+    aes_hw_test();
+    CHECK(wrote(0, 44, 27) && wrote(1, 8, 0x87e2fa74u));
+    CHECK(wrote(5, 0, 0x810) && wrote(6, 48, 4));
+    CHECK(wrote(traced - 1, 0, 0xc0050810u));
 
     /* ccm_memory_v2, encrypt, one header byte. */
     u8 k[16], n[13], h[2] = { 0x7f, 0x55 }, p[8] = { 0 }, c[8] = { 0 }, t[16];

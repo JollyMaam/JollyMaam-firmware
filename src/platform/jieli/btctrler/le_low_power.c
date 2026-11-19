@@ -10,6 +10,11 @@ extern void *low_power_get(void *priv, const struct low_power_operation *ops);
 extern void low_power_put(void *priv);
 extern void low_power_on(void);
 extern void low_power_request(void);
+#ifdef CONFIG_CPU_BD19
+extern BTCTRLER_CONFIG int config_btctler_le_hw_nums;
+extern BTCTRLER_CONFIG u8 lp_bt_sniff_use_btosc;
+static __attribute__((section(".ble_rf_data"))) u32 ble_finetimecnt_poweroff_sfr;
+#endif
 
 #define BLE_RF_BASE 0x1c8000u
 #define BLE_RF_REG(off) (BLE_RF_BASE + (off))
@@ -24,10 +29,22 @@ extern void low_power_request(void);
 #define BLE_WAKE_CTL  0x1cfc70u
 
 #ifdef UNITTEST
-static volatile u32 test_mmio[10];
+static volatile u32 test_mmio[16];
+#ifdef CONFIG_CPU_BD19
+static u8 test_deepsleep_sfr[352];
+struct deep_event { u32 address, value; };
+static struct deep_event deep_events[512];
+static unsigned deep_event_count;
+static void deep_record(u32 address, u32 value)
+{ deep_events[deep_event_count++] = (struct deep_event){address, value}; }
+#endif
 static volatile u32 *test_reg(u32 address)
 {
     switch (address) {
+    case 0x1c8000u: return &test_mmio[10];
+    case 0x1c801cu: return &test_mmio[11];
+    case 0x1c8020u: return &test_mmio[12];
+    case 0x1c8024u: return &test_mmio[13];
     case BLE_DEEPSL_CON: return &test_mmio[0];
     case BLE_FINE_CNT: return &test_mmio[1];
     case BLE_CLKN_CNT: return &test_mmio[2];
@@ -37,12 +54,22 @@ static volatile u32 *test_reg(u32 address)
     case BLE_FINE_ADJ: return &test_mmio[6];
     case BLE_POWER_CTL: return &test_mmio[7];
     case BLE_WAKE_CTL: return &test_mmio[8];
-    default: return &test_mmio[9];
+    default: return &test_mmio[15];
     }
 }
 #define REG32(address) (*test_reg(address))
+#define DEEPSLEEP_SFR test_deepsleep_sfr
+#ifdef CONFIG_CPU_BD19
+#define DEEP_WRITE(address, value) do { u32 v_ = (value); deep_record(address, v_); REG32(address) = v_; } while (0)
+#define DEEP_SYNC() deep_record(0, 0)
+#define DEEP_READ(address) (deep_record(address, REG32(address)), REG32(address))
+#endif
 #else
 #define REG32(address) (*(volatile u32 *)(uintptr_t)(address))
+#define DEEPSLEEP_SFR ((void *)(uintptr_t)0x1c8000u)
+#define DEEP_WRITE(address, value) (REG32(address) = (value))
+#define DEEP_SYNC() __asm__ volatile("csync")
+#define DEEP_READ(address) REG32(address)
 #endif
 
 static u16 __get_latency_cnt(struct ble_hw *hw) BLE_CODE;
@@ -156,6 +183,9 @@ static u32 __power_get_timeout(void *priv)
 static void __power_suspend_probe(void *priv)
 {
     (void)priv;
+#ifdef CONFIG_CPU_BD19
+    REG32(BLE_WAKE_CTL) |= 2u;
+#endif
     REG32(BLE_DEEPSL_CON) &= ~4u;
     REG32(BLE_DEEPSL_CON) |= 32u;
     REG32(BLE_DEEPSL_CON) |= 1u;
@@ -197,6 +227,9 @@ static void __power_resume(void *priv, u32 usec)
     struct ble_hw *hw = priv;
     struct ble4_hw *ble = hw->ble4_hw;
     u32 fine = bt_get_fine_cnt(usec);
+#ifdef CONFIG_CPU_BD19
+    fine += ble_finetimecnt_poweroff_sfr;
+#endif
     u32 clkn = __get_clkn(hw);
     if (clkn == 0)
         btctrler_assert_failed("clkn_cnt >= 1 %d resume fatal ", 0);
@@ -219,8 +252,13 @@ static void __power_resume(void *priv, u32 usec)
             u32 fine_count = REG32(BLE_FINE_CNT);
             sleep_count = fine_count + phase < 625u;
         }
-        if (usec >= start)
-            sleep_count = (u16)((((usec - start) / 625u) / interval_sleep)
+#ifdef CONFIG_CPU_BD19
+        u32 elapsed = fine;
+#else
+        u32 elapsed = usec;
+#endif
+        if (elapsed >= start)
+            sleep_count = (u16)((((elapsed - start) / 625u) / interval_sleep)
                                 + (u16)(sleep_count + 1u));
 
         u32 phase_count = sleep_count;
@@ -246,6 +284,9 @@ static void __power_resume(void *priv, u32 usec)
         __set_ble_anchor_con(hw, 3, (anchor3 & 65535u) + phase_count);
     }
     REG32(BLE_DEEPSL_CON) |= 4u;
+#ifdef CONFIG_CPU_BD19
+    if (lp_bt_sniff_use_btosc) bt_run_clk_sel(1);
+#endif
 }
 
 static void __power_resume_post(void *priv, u32 usec)
@@ -266,9 +307,11 @@ const struct low_power_operation ble_power_ops
         .suspend_post = __power_suspend_post,
         .resume = __power_resume,
         .resume_post = __power_resume_post,
+#ifndef CONFIG_CPU_BD19
         .off_probe = NULL,
         .off_post = NULL,
         .on = NULL,
+#endif
     };
 
 BLE_CODE void ble_power_get(struct ble_hw *hw)
@@ -279,7 +322,11 @@ BLE_CODE void ble_power_get(struct ble_hw *hw)
 
 BLE_CODE void ble_power_on(struct ble_hw *hw)
 {
+#ifdef CONFIG_CPU_BD19
+    (void)hw;
+#else
     if (hw->power_ctrl) low_power_on();
+#endif
 }
 
 BLE_CODE void ble_power_off(struct ble_hw *hw)
@@ -295,6 +342,48 @@ BLE_CODE void ble_power_put(struct ble_hw *hw)
     }
 }
 
+#ifdef CONFIG_CPU_BD19
+BLE_CODE void ble_enter_deepsleep(struct BLE_PWR_OFF_STORE *store)
+{
+    __builtin_memcpy(store, DEEPSLEEP_SFR, 92);
+    for (int hw = 0; hw < config_btctler_le_hw_nums; ++hw)
+        for (int i = 0; i < 16; ++i) {
+            DEEP_WRITE(0x1c801cu, (((u32)hw << 4) & 4080u) | ((u32)i << 10) | 2u);
+            DEEP_SYNC();
+            store->bt_anchor_con[hw][i] = (u16)DEEP_READ(0x1c8024u);
+        }
+    store->ble_finetimecnt_sfr = REG32(0x1c8048u);
+    ble_finetimecnt_poweroff_sfr = 0;
+}
+
+BLE_CODE void ble_exit_deepsleep(struct BLE_PWR_OFF_STORE *store)
+{
+    __builtin_memcpy(DEEPSLEEP_SFR, store, 92);
+    REG32(0x1c8038u) |= 1u;
+    REG32(0x1c8038u) |= 4u;
+    for (int hw = 0; hw < config_btctler_le_hw_nums; ++hw) {
+        /* Restore ordinary anchors first, then commit the coupled 2/9 pair. */
+        for (int i = 0; i < 16; ++i) {
+            if (i == 2 || i == 9) continue;
+            DEEP_WRITE(0x1c8020u, store->bt_anchor_con[hw][i]);
+            DEEP_SYNC();
+            DEEP_WRITE(0x1c801cu, (((u32)hw << 4) & 4080u) | ((u32)i << 10) | 5u);
+        }
+        u8 id = (u8)hw;
+        u16 anchor9 = store->bt_anchor_con[id][9];
+        u16 anchor2 = store->bt_anchor_con[id][2];
+        u16 value = (anchor2 & (u16)~511u) | (anchor9 >> 7);
+        DEEP_WRITE(0x1c8020u, value);
+        DEEP_SYNC();
+        DEEP_WRITE(0x1c801cu, ((u32)id << 4) | 2053u);
+        DEEP_WRITE(0x1c8020u, anchor9 | 64u);
+        DEEP_SYNC();
+        DEEP_WRITE(0x1c801cu, ((u32)id << 4) | 9221u);
+    }
+    ble_finetimecnt_poweroff_sfr = store->ble_finetimecnt_sfr;
+}
+#endif
+
 #ifdef UNITTEST
 #include "test.h"
 
@@ -308,6 +397,16 @@ static const struct low_power_operation *registered_ops;
 static void *registered_priv;
 static int force_get_failure, assert_count;
 int config_asser;
+int config_btctler_le_hw_nums;
+#ifdef CONFIG_CPU_BD19
+u8 lp_bt_sniff_use_btosc;
+static unsigned clock_select_calls;
+void bt_run_clk_sel(u8 source)
+{
+    CHECK(source == 1 && (REG32(BLE_DEEPSL_CON) & 4u));
+    ++clock_select_calls;
+}
+#endif
 
 void btctrler_assert_failed(const char *what, int value)
 { (void)what; (void)value; assert_count++; }
@@ -349,6 +448,10 @@ static void reset_test(void)
     registered_priv = NULL;
     force_get_failure = assert_count = 0;
     config_asser = 0;
+#ifdef CONFIG_CPU_BD19
+    deep_event_count = 0; ble_finetimecnt_poweroff_sfr = 0;
+    lp_bt_sniff_use_btosc = 0; clock_select_calls = 0;
+#endif
 }
 
 int main(void)
@@ -475,6 +578,9 @@ int main(void)
     REG32(BLE_DEEPSL_CON) = 0x1800;
     ble_power_ops.suspend_probe(&hw);
     CHECK(REG32(BLE_DEEPSL_CON) == 0x1821u);
+#ifdef CONFIG_CPU_BD19
+    CHECK(REG32(BLE_WAKE_CTL) == 2u);
+#endif
 
     reset_test();
     REG32(BLE_DEEPSL_CON) = 0x1808;
@@ -496,7 +602,11 @@ int main(void)
     ble_power_get(&hw);
     CHECK(get_calls == 1 && registered_priv == &hw && registered_ops == &ble_power_ops);
     ble_power_on(&hw); ble_power_off(&hw); ble_power_put(&hw);
+#ifdef CONFIG_CPU_BD19
+    CHECK(!on_calls && requests == 1 && put_calls == 1);
+#else
     CHECK(on_calls == 1 && requests == 1 && put_calls == 1);
+#endif
     CHECK(hw.power_ctrl == NULL);
 
     reset_test();
@@ -508,6 +618,81 @@ int main(void)
     force_get_failure = 1;
     ble_power_get(&hw);
     CHECK(hw.power_ctrl == NULL && assert_count == 1);
+
+#ifdef CONFIG_CPU_BD19
+    reset_test();
+    config_btctler_le_hw_nums = 2;
+    for (unsigned i = 0; i < sizeof(test_deepsleep_sfr); ++i)
+        test_deepsleep_sfr[i] = (u8)(i * 3);
+    test_mmio[13] = 0x1234;
+    test_mmio[4] = 0;
+    REG32(0x1c8048u) = 0x55aa;
+    struct BLE_PWR_OFF_STORE store = {0};
+    ble_enter_deepsleep(&store);
+    CHECK(!memcmp(&store, test_deepsleep_sfr, 92));
+    CHECK(deep_event_count == 2 * 16 * 3);
+    for (unsigned hw_id = 0, e = 0; hw_id < 2; ++hw_id)
+        for (unsigned i = 0; i < 16; ++i) {
+            CHECK(deep_events[e].address == 0x1c801cu &&
+                  deep_events[e++].value == ((hw_id << 4) | (i << 10) | 2u));
+            CHECK(deep_events[e++].address == 0);
+            CHECK(deep_events[e].address == 0x1c8024u && deep_events[e++].value == 0x1234);
+        }
+    CHECK(store.bt_anchor_con[0][0] == 0x1234 &&
+          store.bt_anchor_con[1][15] == 0x1234);
+    CHECK(store.ble_finetimecnt_sfr == 0x55aa &&
+          ble_finetimecnt_poweroff_sfr == 0);
+    store.bt_anchor_con[0][2] = 0xa800;
+    store.bt_anchor_con[0][9] = (5u << 7) | 3u;
+    store.ble_finetimecnt_sfr = 0xdeadbeef;
+    test_mmio[11] = test_mmio[12] = test_mmio[14] = 0;
+    for (unsigned h = 0; h < 2; ++h)
+        for (unsigned i = 0; i < 16; ++i)
+            store.bt_anchor_con[h][i] = (u16)(0xa000u + h * 256u + i * 17u);
+    deep_event_count = 0;
+    ble_exit_deepsleep(&store);
+    CHECK(deep_event_count == 2 * 16 * 3);
+    unsigned e = 0;
+    for (unsigned h = 0; h < 2; ++h) {
+        for (unsigned i = 0; i < 16; ++i) {
+            if (i == 2 || i == 9) continue;
+            CHECK(deep_events[e].address == 0x1c8020u &&
+                  deep_events[e++].value == store.bt_anchor_con[h][i]);
+            CHECK(deep_events[e++].address == 0);
+            CHECK(deep_events[e].address == 0x1c801cu &&
+                  deep_events[e++].value == ((h << 4) | (i << 10) | 5u));
+        }
+        CHECK(deep_events[e].address == 0x1c8020u &&
+              deep_events[e++].value == ((store.bt_anchor_con[h][2] & 0xfe00u) |
+                                         (store.bt_anchor_con[h][9] >> 7)));
+        CHECK(deep_events[e++].address == 0);
+        CHECK(deep_events[e].address == 0x1c801cu && deep_events[e++].value == ((h << 4) | 2053u));
+        CHECK(deep_events[e].address == 0x1c8020u &&
+              deep_events[e++].value == (store.bt_anchor_con[h][9] | 64u));
+        CHECK(deep_events[e++].address == 0);
+        CHECK(deep_events[e].address == 0x1c801cu && deep_events[e++].value == ((h << 4) | 9221u));
+    }
+    CHECK(!memcmp(test_deepsleep_sfr, &store, 92));
+    CHECK((REG32(0x1c8038u) & 5u) == 5u);
+    CHECK(REG32(0x1c801cu) == ((1u << 4) | 9221u));
+    CHECK(ble_finetimecnt_poweroff_sfr == 0xdeadbeef);
+    reset_test();
+    ble.state = 0; test_anchors[0] = 100; test_anchors[1] = 10;
+    ble_finetimecnt_poweroff_sfr = 600; fine_value = 50;
+    ble_power_ops.resume(&hw, 50);
+    CHECK(REG32(BLE_CLKN_CNT) == 2 && REG32(BLE_FINE_CNT) == 25);
+    ble_finetimecnt_poweroff_sfr = 0xfffffff0u; fine_value = 40;
+    ble_power_ops.resume(&hw, 40);
+    CHECK(REG32(BLE_CLKN_CNT) == 1 && REG32(BLE_FINE_CNT) == 24);
+    CHECK(clock_select_calls == 0);
+    reset_test();
+    ble.state = 6; ble.latency_en = 0;
+    test_anchors[0] = 2; test_anchors[1] = 4; test_anchors[3] = 10;
+    fine_value = 500; ble_finetimecnt_poweroff_sfr = 2000;
+    lp_bt_sniff_use_btosc = 1;
+    ble_power_ops.resume(&hw, 0);
+    CHECK(test_anchors[3] == 11 && clock_select_calls == 1);
+#endif
 
     return TEST_DONE("le_low_power");
 }

@@ -36,6 +36,22 @@ extern int uECC_compute_public_key(const uint8_t *private_key, uint8_t *public_k
 extern int uECC_shared_secret(const uint8_t *public_key, const uint8_t *private_key,
                               uint8_t *secret, uECC_Curve curve);
 
+#ifdef CONFIG_CPU_BD19
+static HCI_CODE void btencry_sdk_assert(int asser, int line)
+{
+    if (asser) {
+        printf("file:%s, line:%d", "/jks/workspace/data_trans_sdk_export_gitlab/data_trans_sdk/lib/btctrler/common/btencry_task.c", line);
+        if (line == 111)
+            printf("ASSERT-FAILD: btencry_sem ");
+        else
+            printf("ASSERT-FAILD: argc < ARRAY_SIZE(argv) ");
+        cpu_assert_debug();
+    } else {
+        p33_soft_reset();
+    }
+}
+#endif
+
 /* The SDK uses byte offsets when packing these request records. */
 _Static_assert(offsetof(struct e1_para, rand) == 6, "e1 rand offset");
 _Static_assert(offsetof(struct e1_para, k) == 22, "e1 key offset");
@@ -129,7 +145,12 @@ static HCI_CODE void btencry_task(void)
 HCI_CODE void btencry_task_init(void)
 {
     if (!btencry_sem) btencry_sem = malloc(80);
+#ifdef CONFIG_CPU_BD19
+    int asser = config_asser;
+    if (!btencry_sem) btencry_sdk_assert(asser, 111);
+#else
     if (!btencry_sem) btctrler_assert_failed("btencry_sem", 0);
+#endif
     os_sem_create(btencry_sem, 0);
     task_create((void (*)(void *))btencry_task, NULL, "btencry");
 }
@@ -145,7 +166,13 @@ HCI_CODE int btencry_msg_to_task(int cmd, int argc, ...)
     int argv[16];
     va_list ap;
     btencry_task_init();
+#ifdef CONFIG_CPU_BD19
+    int asser = config_asser;
+    if ((u32)argc >= 16)
+        btencry_sdk_assert(asser, 133);
+#else
     if ((u32)argc >= 16) btctrler_assert_failed("argc < ARRAY_SIZE(argv)", argc);
+#endif
     va_start(ap, argc);
     for (int i = 0; i < argc; ++i) argv[i] = va_arg(ap, int);
     va_end(ap);
@@ -333,7 +360,7 @@ HCI_CODE int uECC_shared_secret_api(const uint8_t *public_key, const uint8_t *pr
 
 int config_bt_function;
 int config_asser;
-static int sem_creates, task_creates, task_kills, posts, pendings, delays;
+static int sem_creates, task_creates, task_kills, posts, pendings, delays, resets;
 static int irq, disabled, asserts, fail_post, post_results[4], post_result_count;
 static int last_cmd, last_argc, last_argv[16], fail_alloc;
 static void (*task_entry)(void *);
@@ -401,6 +428,8 @@ int os_taskq_post_type(const char *name, int type, int argc, int *argv)
 void os_time_dly(int ticks) { CHECK(ticks == 2); ++delays; }
 void btctrler_assert_failed(const char *what, int value)
 { CHECK(what); (void)value; ++asserts; }
+void cpu_assert_debug(void) { ++asserts; }
+void p33_soft_reset(void) { ++resets; }
 void function_E1(u8 *a, u8 *r, u8 *k, u8 *out)
 { if (!worker_mode) ++direct_called; dispatched = 0; dispatch_result = out; dispatch_args[0] = a; dispatch_args[1] = r; dispatch_args[2] = k; dispatch_args[3] = out; dispatch_arg_count = 4; }
 void function_E21(u8 *a, u8 *r, u8 *out)
@@ -429,6 +458,7 @@ static void reset_test(void)
     free(btencry_sem); btencry_sem = NULL;
     sem_creates = task_creates = task_kills = posts = pendings = delays = 0;
     irq = disabled = asserts = fail_post = post_result_count = fail_alloc = 0;
+    resets = 0;
     memset(last_argv, 0, sizeof(last_argv)); task_entry = NULL;
     worker_mode = worker_pend_count = sem_sets = sem_posts = sem_order_count = 0;
     dispatched = api_fill = direct_called = released = 0; last_freed = NULL;
@@ -488,6 +518,7 @@ int main(void)
 
     reset_test();
     fail_post = 0;
+    config_asser = 1;
     CHECK(btencry_msg_to_task(9, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) == 0);
     CHECK(asserts == 1 && last_argc == 16 && last_argv[15] == 15);
 
@@ -629,9 +660,21 @@ int main(void)
     CHECK(released == 1 && last_freed == ecc_ss);
 
     reset_test();
+    config_asser = 1; fail_alloc = 1;
+    btencry_task_init();
+#ifdef CONFIG_CPU_BD19
+    CHECK(asserts == 1 && resets == 0 && sem_creates == 1 && task_creates == 1);
+#else
+    CHECK(asserts == 1 && sem_creates == 1 && task_creates == 1);
+#endif
+    reset_test();
     config_asser = 0; fail_alloc = 1;
     btencry_task_init();
+#ifdef CONFIG_CPU_BD19
+    CHECK(asserts == 0 && resets == 1 && sem_creates == 1 && task_creates == 1);
+#else
     CHECK(asserts == 1 && sem_creates == 1 && task_creates == 1);
+#endif
     config_asser = 0; fail_alloc = 0;
     return TEST_DONE("btctrler_btencry_task");
 }

@@ -140,7 +140,7 @@ def main():
         padtool("ephemeral")
         padtool("--dongle", "ephemeral")
         settings = [kv.split("=", 1) for kv in a.set]
-        padtool("--dev", "set", a.slot, "type", a.type, "transport", "dongle", *[x for kv in settings for x in kv])
+        padtool("--dev", "set", a.slot, "radio", "dongle", "radio_type", a.type, *[x for kv in settings for x in kv])
         padtool("pair", a.slot)
         time.sleep(1)
         padtool("--dongle", "pair")

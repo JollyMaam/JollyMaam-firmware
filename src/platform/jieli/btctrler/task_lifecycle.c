@@ -3,19 +3,34 @@
 #include <stdlib.h>
 #include "btctrler/glue.h"
 
+#ifdef CONFIG_CPU_BD19
+#define TASK_CODE __attribute__((section(".hci_controller_code")))
+#else
+#define TASK_CODE
+#endif
+
 extern BTCTRLER_CONFIG u8 log_tag_const_i_LMP, log_tag_const_e_LMP;
 void log_print(int level, const char *tag, const char *format, ...);
 void sys_event_notify(struct sys_event *event);
 int os_sem_create(OS_SEM *sem, int count);
 int os_sem_pend(OS_SEM *sem, int timeout);
+int os_taskq_pend(const char *name, int *msg, int count);
 int os_taskq_post_type(const char *name, int type, int argc, int *argv);
 /* The host transport hci_interface_setup registers (btctrler_task.c). */
 __attribute__((section(".hci_controller_bss"))) const hci_transport_t *h4_transport;
 __attribute__((section(".hci_controller_bss"))) const void *h4_config;
+#ifdef CONFIG_CPU_BD19
+static __attribute__((section(".hci_controller_data")))
+void (*bt_testbox_update_msg_handle)(int);
+#endif
 
 int task_create(void (*entry)(void *), void *priv, const char *name);
 int task_kill(const char *name);
+#ifdef CONFIG_CPU_BD19
+static void btctrler_task(void);
+#else
 void btctrler_task(void);
+#endif
 
 #ifdef UNITTEST
 static void *test_alloc(size_t size);
@@ -27,9 +42,9 @@ _Static_assert(sizeof(OS_SEM) == 80, "SDK task semaphore size");
 _Static_assert(sizeof(void *) == sizeof(int), "SDK task message pointer size");
 #endif
 
-static void info(const char *message)
+static TASK_CODE void info(const char *message)
 { if (log_tag_const_i_LMP) log_print(2, NULL, message); }
-static int modules_supported(void)
+static TASK_CODE int modules_supported(void)
 {
     if (config_btctler_modules & 3) return 1;
     if (log_tag_const_e_LMP)
@@ -39,25 +54,39 @@ static int modules_supported(void)
 
 /* The task acknowledges these messages through the supplied semaphore.
  * A failed post must not leave the caller waiting for an absent message. */
-static int synchronize_task(int type)
+static TASK_CODE int synchronize_task(int type)
 {
     OS_SEM *sem = malloc(sizeof(*sem));
     if (!sem) {
         btctrler_assert_failed("controller task semaphore allocation", 0);
+#ifndef CONFIG_CPU_BD19
         return -22;
+#endif
     }
-    int result = os_sem_create(sem, 0);
-    if (!result) {
-        int word = (int)(uintptr_t)sem;
-        result = os_taskq_post_type("btctrler", type, 1, &word);
-        if (!result) os_sem_pend(sem, 0);
+    int create_result = os_sem_create(sem, 0);
+#ifdef CONFIG_CPU_BD19
+    (void)create_result;
+#else
+    if (create_result) {
+        free(sem);
+        return create_result;
     }
+#endif
+    int word = (int)(uintptr_t)sem;
+    int result = os_taskq_post_type("btctrler", type, 1, &word);
+#ifdef CONFIG_CPU_BD19
+    /* Queue/pend callbacks can update the escaped message word. */
+    if (!result) os_sem_pend((OS_SEM *)(uintptr_t)(u32)word, 0);
+    free((OS_SEM *)(uintptr_t)(u32)word);
+#else
+    if (!result) os_sem_pend(sem, 0);
     free(sem);
+#endif
     return result;
 }
-int btctrler_task_ready(void)
+TASK_CODE int btctrler_task_ready(void)
 { return synchronize_task(MSG_TASK_READY) == 0; }
-void btctrler_resume_req(void)
+TASK_CODE void btctrler_resume_req(void)
 {
     struct sys_event event = {0};
     event.type = 16;
@@ -65,7 +94,7 @@ void btctrler_resume_req(void)
     event.u.bt.event = BTCTRLER_EVENT_RESUME_REQ;
     sys_event_notify(&event);
 }
-void bredr_bulk_change(u8 mode)
+TASK_CODE void bredr_bulk_change(u8 mode)
 {
     bredr_close_all_scan();
     link_task_schedule_resume();
@@ -83,7 +112,7 @@ void bredr_bulk_change(u8 mode)
     }
     link_change_bulk_init(mode);
 }
-int btctrler_suspend(u8 suspend_rx_bulk)
+TASK_CODE int btctrler_suspend(u8 suspend_rx_bulk)
 {
     if (!(config_btctler_modules & 1)) return 0;
     bredr_power_suspend();
@@ -100,13 +129,13 @@ int btctrler_suspend(u8 suspend_rx_bulk)
     info("[Info]: [LMP]suspend_exit\n\r\n");
     return 0;
 }
-void btctrler_resume(void)
+TASK_CODE void btctrler_resume(void)
 {
     bredr_rx_bulk_resume();
     lmp_conn_resume();
     bredr_power_resume();
 }
-u8 bredr_bulk_change_rx_bulk(u8 mode)
+TASK_CODE u8 bredr_bulk_change_rx_bulk(u8 mode)
 {
     bredr_close_all_scan();
     link_task_schedule_resume();
@@ -118,7 +147,7 @@ u8 bredr_bulk_change_rx_bulk(u8 mode)
                 "[Info]: [LMP]wait_suspend 1\n\r\n");
     return 0;
 }
-int btctrler_task_init(const void *transport, const void *config)
+TASK_CODE int btctrler_task_init(const void *transport, const void *config)
 {
     if (!modules_supported()) return 0;
     info("[Info]: [LMP]>>>btctrler_task_init<<<\r\n");
@@ -127,20 +156,48 @@ int btctrler_task_init(const void *transport, const void *config)
     task_create((void (*)(void *))btctrler_task, NULL, "btctrler");
     return 0;
 }
-static void wait_links(void)
+static TASK_CODE void wait_links(void)
 {
     /* Probe once more at the limit, as the SDK does, before proceeding. */
     for (unsigned count = 0; bredr_link_check_used() && count < 100; ++count)
         os_time_dly(3);
 }
-static void wait_connections(void)
+static TASK_CODE void wait_connections(void)
 {
     for (unsigned count = 0; lmp_get_conn_num() && count < 100; ++count)
         os_time_dly(3);
 }
-int btctrler_task_exit(void)
+TASK_CODE int btctrler_task_exit(void)
 {
+#ifdef CONFIG_CPU_BD19
+    /* The SDK snapshots module selection before allocation and callbacks. */
+    int modules = config_btctler_modules;
+    if (!(modules & 3)) {
+        if (log_tag_const_e_LMP)
+            log_print(4, NULL, "<Error>: [LMP]>>>BT_MODULES_IS_SUPPORT None<<<\r\n");
+        return 0;
+    }
+#else
     if (!modules_supported()) return 0;
+#endif
+#ifdef CONFIG_CPU_BD19
+    OS_SEM *sem = malloc(sizeof(*sem));
+    if (!sem) btctrler_assert_failed("controller task semaphore allocation", 0);
+    int create_result = os_sem_create(sem, 0);
+    (void)create_result;
+    if (modules & 1) {
+        wait_links();
+        btctrler_hci_cmd_to_task(LMP_HCI_CMD, 1, 0x0c03);
+        wait_connections();
+    }
+    int word = (int)(uintptr_t)sem;
+    os_taskq_post_type("btctrler", MSG_TASK_DEL, 1, &word);
+    os_sem_pend((OS_SEM *)(uintptr_t)(u32)word, 0);
+    free((OS_SEM *)(uintptr_t)(u32)word);
+    info("[Info]: [LMP]btctrler_exit\n\r\n");
+    task_kill("btctrler");
+    return 0;
+#else
     /* Allocate before draining, preserving the SDK's allocation-failure order. */
     OS_SEM *sem = malloc(sizeof(*sem));
     if (!sem) {
@@ -162,8 +219,9 @@ int btctrler_task_exit(void)
     info("[Info]: [LMP]btctrler_exit\n\r\n");
     task_kill("btctrler");
     return 0;
+#endif
 }
-int btctrler_task_close_bredr(void)
+TASK_CODE int btctrler_task_close_bredr(void)
 {
     if (!modules_supported()) return 0;
     wait_links();
@@ -173,7 +231,58 @@ int btctrler_task_close_bredr(void)
     bredr_bd_close();
     return 0;
 }
-void btctrler_task_init_bredr(void) { bredr_bd_init(); }
+TASK_CODE void btctrler_task_init_bredr(void) { bredr_bd_init(); }
+
+#ifdef CONFIG_CPU_BD19
+TASK_CODE void btctrler_testbox_update_msg_handle_register(void (*handle)(int))
+{ bt_testbox_update_msg_handle = handle; }
+
+/* The SDK's task entry has internal linkage. Keep it with task_create in the
+ * BD19 split source so the owned object does not export this dormant symbol. */
+static TASK_CODE void btctrler_task(void)
+{
+    int msg[14];
+    hci_controller_init();
+    const int classic = config_btctler_modules & 1;
+    const int le = (config_btctler_modules & 2) && (config_btctler_le_roles & 255);
+    for (;;) {
+        if (os_taskq_pend(NULL, msg, 14) != 13) continue;
+        int *args = msg + 1;
+        switch (msg[0]) {
+        case LMP_EVENT:
+            if (classic && get_bredr_is_init()) lmp_event_handler(args);
+            break;
+        case LMP_HCI_CMD:
+            if (classic && get_bredr_is_init()) lmp_hci_cmd_handler(args);
+            break;
+        case LMP_HCI_CMD_TO_CONN:
+            if (classic && get_bredr_is_init()) lmp_hci_cmd_to_conn_handler(args);
+            break;
+        case LL_EVENT:
+            if (le) ll_event_handler(args);
+            break;
+        case HCI_CMD_TO_LL:
+            if (le) ll_hci_cmd_handler(args);
+            break;
+        case MSG_TASK_READY:
+            os_sem_post((OS_SEM *)(uintptr_t)(u32)args[0]);
+            break;
+        case MSG_TASK_DEL:
+            hci_controller_destory();
+            os_sem_post((OS_SEM *)(uintptr_t)(u32)args[0]);
+            os_time_dly(20);
+            break;
+        case MSG_BT_UPDATA_START:
+        case MSG_BT_UPDATE_LOADER_DOWNLOAD_START:
+        case MSG_BLE_TEST_UPDATA_START:
+        case MSG_BLE_TEST_OTA_LOADER_DOWNLOAD_START:
+            if (bt_testbox_update_msg_handle) bt_testbox_update_msg_handle(msg[0]);
+            break;
+        }
+        hci_controller_run_loop();
+    }
+}
+#endif
 
 #ifdef UNITTEST
 #include <assert.h>
@@ -182,6 +291,11 @@ void btctrler_task_init_bredr(void) { bredr_bd_init(); }
 int config_btctler_modules;
 u8 log_tag_const_i_LMP, log_tag_const_e_LMP;
 static OS_SEM test_sem;
+#ifdef CONFIG_CPU_BD19
+static OS_SEM post_sem, pend_sem;
+static int mutate_word, create_modules;
+static int *saved_word;
+#endif
 static int allocation_fails, create_result, post_result, allocations, frees, assertions;
 static int rx_busy, tx_busy, remain_busy, links_busy, connections_busy, remaining_checks;
 static int last_suspend, last_mode, last_type, logs;
@@ -191,20 +305,51 @@ static unsigned at;
 static void record(char c) { assert(at + 1 < sizeof(trace)); trace[at++] = c; trace[at] = 0; }
 static void *test_alloc(size_t size)
 { assert(size == sizeof(OS_SEM)); ++allocations; record('a'); return allocation_fails ? NULL : &test_sem; }
-static void test_free(void *ptr) { assert(ptr == &test_sem); ++frees; record('f'); }
+static void test_free(void *ptr)
+{
+#ifdef CONFIG_CPU_BD19
+    void *expected = !mutate_word ? &test_sem :
+        last_type == MSG_TASK_READY && post_result ? &post_sem : &pend_sem;
+    assert(ptr == expected);
+#else
+    assert(ptr == &test_sem);
+#endif
+    ++frees; record('f');
+}
 void btctrler_assert_failed(const char *what, int value)
 { (void)what; (void)value; ++assertions; record('!'); }
 void log_print(int level, const char *tag, const char *format, ...)
 { assert(level == 2 || level == 4); assert(!tag && format); ++logs; }
 int os_sem_create(OS_SEM *sem, int count)
-{ assert(sem == &test_sem && !count); record('c'); return create_result; }
+{
+    assert(sem == &test_sem && !count); record('c');
+#ifdef CONFIG_CPU_BD19
+    if (create_modules >= 0) config_btctler_modules = create_modules;
+#endif
+    return create_result;
+}
 int os_sem_pend(OS_SEM *sem, int timeout)
-{ assert(sem == &test_sem && !timeout && !post_result); record('p'); return 0; }
+{
+#ifdef CONFIG_CPU_BD19
+    assert(sem == (mutate_word ? &post_sem : &test_sem) && !timeout);
+    if (mutate_word) *saved_word = (int)(uintptr_t)&pend_sem;
+#else
+    assert(sem == &test_sem && !timeout);
+#endif
+#ifndef CONFIG_CPU_BD19
+    assert(!post_result);
+#endif
+    record('p'); return 0;
+}
 int os_taskq_post_type(const char *name, int type, int argc, int *argv)
 {
     assert(!strcmp(name, "btctrler") && argc == 1);
     assert(argv[0] == (int)(uintptr_t)&test_sem);
     assert(type == MSG_TASK_READY || type == MSG_TASK_DEL);
+#ifdef CONFIG_CPU_BD19
+    saved_word = argv;
+    if (mutate_word) *argv = (int)(uintptr_t)&post_sem;
+#endif
     last_type = type; record('q'); return post_result;
 }
 int task_create(void (*entry)(void *), void *priv, const char *name)
@@ -213,7 +358,9 @@ int task_create(void (*entry)(void *), void *priv, const char *name)
     assert(h4_transport == (const void *)(uintptr_t)0x1234 && h4_config == (const void *)(uintptr_t)0x5678);
     record('t'); return -1; /* SDK initializer ignores this result. */
 }
+#ifndef CONFIG_CPU_BD19
 void btctrler_task(void) { assert(0); }
+#endif
 int task_kill(const char *name) { assert(!strcmp(name, "btctrler")); record('k'); return 0; }
 void sys_event_notify(struct sys_event *event) { notified = *event; record('e'); }
 void bredr_close_all_scan(void) { record('s'); }
@@ -246,6 +393,9 @@ void bredr_bd_close(void) { record('E'); }
 void bredr_bd_init(void) { record('I'); }
 static void reset(void)
 {
+#ifdef CONFIG_CPU_BD19
+    mutate_word = 0; create_modules = -1; saved_word = NULL;
+#endif
     allocation_fails = create_result = post_result = allocations = frees = assertions = 0;
     rx_busy = tx_busy = remain_busy = links_busy = connections_busy = remaining_checks = 0;
     last_suspend = last_mode = last_type = logs = 0;
@@ -259,10 +409,29 @@ int main(void)
     reset(); assert(btctrler_task_ready() == 1 && !strcmp(trace, "acqpf") && last_type == MSG_TASK_READY);
     reset(); post_result = 21;
     assert(!btctrler_task_ready() && !strcmp(trace, "acqf"));
+#ifndef CONFIG_CPU_BD19
     reset(); allocation_fails = 1;
     assert(!btctrler_task_ready() && assertions == 1 && !frees && !strcmp(trace, "a!"));
     reset(); create_result = -4;
     assert(!btctrler_task_ready() && !strcmp(trace, "acf"));
+#else
+    reset(); create_result = -4;
+    assert(btctrler_task_ready() && !strcmp(trace, "acqpf"));
+#endif
+#ifdef CONFIG_CPU_BD19
+    reset(); mutate_word = 1;
+    assert(btctrler_task_ready() && !strcmp(trace, "acqpf") && frees == 1);
+    reset(); mutate_word = 1; post_result = 21;
+    assert(!btctrler_task_ready() && !strcmp(trace, "acqf") && frees == 1);
+    reset(); mutate_word = 1;
+    assert(!btctrler_task_exit() && !strcmp(trace, "acuhnqpfk") && frees == 1);
+    reset(); mutate_word = 1; post_result = 21;
+    assert(!btctrler_task_exit() && !strcmp(trace, "acuhnqpfk") && frees == 1);
+    reset(); create_modules = 2;
+    assert(!btctrler_task_exit() && !strcmp(trace, "acuhnqpfk"));
+    reset(); config_btctler_modules = 2; create_modules = 3;
+    assert(!btctrler_task_exit() && !strcmp(trace, "acqpfk"));
+#endif
     reset(); btctrler_resume_req();
     assert(!strcmp(trace, "e") && notified.type == 16 && !notified.consumed);
     assert((uintptr_t)notified.arg == 1129599488 && notified.u.bt.event == 1 && !notified.u.bt.value);
@@ -311,11 +480,21 @@ int main(void)
         assert(!strcmp(trace + at - 3, "CDE"));
     }
     reset(); post_result = 21;
+#ifdef CONFIG_CPU_BD19
+    assert(!btctrler_task_exit() && !strcmp(trace, "acuhnqpfk") && frees == 1);
+#else
     assert(btctrler_task_exit() == 21 && !strcmp(trace, "acuhnqf") && frees == 1);
+#endif
     reset(); create_result = -3;
+#ifdef CONFIG_CPU_BD19
+    assert(!btctrler_task_exit() && !strcmp(trace, "acuhnqpfk") && frees == 1);
+#else
     assert(btctrler_task_exit() == -3 && !strcmp(trace, "acf"));
+#endif
+#ifndef CONFIG_CPU_BD19
     reset(); allocation_fails = 1;
     assert(btctrler_task_exit() == -22 && !strcmp(trace, "a!") && !frees);
+#endif
     reset(); btctrler_task_init_bredr(); assert(!strcmp(trace, "I"));
     reset(); log_tag_const_i_LMP = 1; rx_busy = 1;
     btctrler_suspend(0); assert(logs == 2);

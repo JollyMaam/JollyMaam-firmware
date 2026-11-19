@@ -49,9 +49,15 @@ static const union __connected_distance find_interspace_distance[8] = {
     { ._u32 = 0xffffffff }, { ._u32 = 0xffffffff },
     { ._u32 = 0xffffffff }, { ._u32 = 0xffffffff },
 };
+#ifdef CONFIG_CPU_BD19
+const struct lp_target ble_slave_multlp_target __attribute__((section(".lp_target"), used)) = {
+    (char *)"ble_slave_mult", NULL, mult_slave_or_master_idle_query
+};
+#else
 const struct lp_target ble_slave_multlp_target __attribute__((section(".lp_target"), used)) = {
     (char *)"ble_slave_mult", mult_slave_or_master_idle_query
 };
+#endif
 static struct mult_slave_or_master_manger m_s __attribute__((section(".ble_rf_data"))) = {
     .opt_id = 0xff, .opt_rx_irq_hw_id = 0xff, .opt_next_id = 0xff,
     .opt_scan_id = 0xff, .opt_init_id = 0xff,

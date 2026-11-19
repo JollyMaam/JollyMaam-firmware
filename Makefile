@@ -34,3 +34,5 @@ RULES += src/boards/8bitdo-ultimate2c-wireless
 RULES += src/boards/8bitdo-ultimate2c-bluetooth
 
 $(eval $(call generate-rules,$(RULES)))
+
+include tools/btctrler/vanilla.mk

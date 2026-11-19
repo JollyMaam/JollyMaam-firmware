@@ -1,5 +1,5 @@
 /* Connection teardown from the SDK's lmp.c (Classic link manager).  The
- * rest of lmp.c is spread over src/btctrler/lmp_*.c. */
+ * rest of lmp.c is spread over src/platform/jieli/btctrler/lmp_*.c. */
 #include "btctrler/glue.h"
 
 /* lmp_connection.core.state bits used here. */

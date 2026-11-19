@@ -1,5 +1,6 @@
-/* Controller timer adapter. Both registration entry points use sys_timer_add;
- * removal uses sys_timeout_del, and handles truncate to 16 bits as in the SDK. */
+/* Controller timer adapter. BR23 and BD19 have identical member IR here:
+ * registration uses sys_timer_add and widens its u16 result to int; all
+ * incoming int handles truncate to u16, while clock/period values stay u32. */
 #include "btctrler/glue.h"
 
 /* Runtime timer API absent from the recovered controller prototypes. */

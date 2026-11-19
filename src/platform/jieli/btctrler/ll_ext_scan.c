@@ -15,6 +15,15 @@ extern void log_print(int level, const char *tag, const char *format, ...);
 extern struct ext_le_parameter ext_le_param;
 
 #define LL_CODE __attribute__((section(".ble_ll_code")))
+#ifdef CONFIG_CPU_BD19
+/* The SDK exports an i8 result; the recovered public bool prototype is i1. */
+u8 build_ext_aux_adv_report_ir(struct le_ext_scan_link *, u8, u8 *, ext_pdu_t *)
+    __asm__("build_ext_aux_adv_report");
+#define build_ext_aux_adv_report build_ext_aux_adv_report_ir
+#define AUX_REPORT_RESULT u8
+#else
+#define AUX_REPORT_RESULT bool
+#endif
 
 #ifndef UNITTEST
 _Static_assert(sizeof(struct le_ext_scan_link) == 64, "SDK extended scan link size");
@@ -65,8 +74,8 @@ static void ll_ext_header_resolve(const ext_pdu_t *pdu, u8 member, u8 *member_bu
 /* Fold an auxiliary (extended) PDU into the link's pending report.  Returns
  * 0 when the direct address does not match ours (drop), else 1 with *offset
  * set to the number of header bytes in front of the payload. */
-bool build_ext_aux_adv_report(struct le_ext_scan_link *link, uint8_t data_status, u8 *offset, ext_pdu_t *pdu) LL_CODE;
-bool build_ext_aux_adv_report(struct le_ext_scan_link *link, uint8_t data_status, u8 *offset, ext_pdu_t *pdu)
+AUX_REPORT_RESULT build_ext_aux_adv_report(struct le_ext_scan_link *link, uint8_t data_status, u8 *offset, ext_pdu_t *pdu) LL_CODE;
+AUX_REPORT_RESULT build_ext_aux_adv_report(struct le_ext_scan_link *link, uint8_t data_status, u8 *offset, ext_pdu_t *pdu)
 {
     struct le_ext_adv_report *report = &link->ext_adv_report;
 
@@ -370,7 +379,8 @@ static void le_ext_adv_report_event_handle(struct le_ext_scan_link *link, struct
     struct le_ext_adv_report *report = &link->ext_adv_report;
 
     ll_get_ext_adv_pdu(rx, &pdu);
-    if (rx->data_status & 32) {
+    u8 data_status = rx->data_status;
+    if (data_status & 32) {
         offset = 6;
         memset(report->direct_address, 0, 15);
         switch (pdu.type) {
@@ -420,8 +430,13 @@ static void le_ext_adv_report_event_handle(struct le_ext_scan_link *link, struct
         report->event_type &= 0x9f;
         le_ext_adv_report_event_generate(link, rx, offset);
     } else {
-        bool built = build_ext_aux_adv_report(link, rx->data_status, &offset, &pdu);
+        bool built = build_ext_aux_adv_report(link, data_status, &offset, &pdu);
+#ifdef CONFIG_CPU_BD19
+        /* SDK keeps the pre-call status across radio header callbacks. */
+        if (data_status & 64) {
+#else
         if (rx->data_status & 64) {
+#endif
             report->addr_type = rx->txadd;
             return;
         }
@@ -470,9 +485,12 @@ static void *closed_hw;
 static void *scan_hw, *scan_primary;
 static struct ble_ext_scan *scan_arg;
 static struct ble_ext_rx *upload_rx;
+#ifdef CONFIG_CPU_BD19
+static struct ble_ext_rx *mutate_status_rx;
+#endif
 
 /* what the radio hands back for ext_ioctrl(12, ...) */
-static struct { int flag; u8 *data; int member; u8 *buf; } resolves[8];
+static struct { int flag; u8 *data; int member; u8 *buf; } resolves[64];
 static int nresolves;
 static u8 resolve_address[6] = { 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6 };
 static u8 resolve_direct[6] = { 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6 };
@@ -548,6 +566,13 @@ static void op_ext_ioctrl(void *hw, int cmd, ...)
     va_list ap;
     va_start(ap, cmd);
     if (cmd == 12) {
+#ifdef CONFIG_CPU_BD19
+        if (mutate_status_rx) {
+            mutate_status_rx->data_status ^= 64;
+            mutate_status_rx = NULL;
+        }
+#endif
+        CHECK(nresolves < (int)(sizeof resolves / sizeof resolves[0]));
         int i = nresolves++;
         CHECK(hw == NULL);
         resolves[i].flag = va_arg(ap, int);
@@ -709,6 +734,22 @@ int main(void)
     offset = 0x55;
     CHECK(build_ext_aux_adv_report(link, 0, &offset, &pdu) == 0);
     CHECK(offset == 0x55);
+
+#ifdef CONFIG_CPU_BD19
+    /* SDK keeps status bit 6 from before build_ext_aux_adv_report, even
+     * when a radio header callback changes the RX record during that call. */
+    for (unsigned status = 0; status <= 64; status += 64) {
+        reset();
+        link = new_link();
+        make_rx(7, status, 4);
+        rx->data[0] = 1; rx->data[1] = 0;
+        mutate_status_rx = rx;
+        ll_ext_scan_rx_post(link, rx);
+        CHECK(rx->data_status == (status ^ 64));
+        CHECK(nreports == (status ? 0 : 1));
+        CHECK(link->ext_adv_report.addr_type == (status ? rx->txadd : 0x7e));
+    }
+#endif
 
     /* legacy advertising reports */
     reset();

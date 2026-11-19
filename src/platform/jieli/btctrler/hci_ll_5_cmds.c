@@ -13,7 +13,9 @@ extern u8 ll_periodic_advertising_terminate_sync_ir(u16 handle) __asm__("ll_peri
 
 #define HCI5_CODE __attribute__((section(".ble_hci_code")))
 
-struct ext_le_parameter ext_le_param __attribute__((section(".ble_hci_bss")));
+/* The SDK exports a zeroed 28-byte state object aligned to a word. */
+struct ext_le_parameter ext_le_param
+    __attribute__((section(".ble_hci_bss"), aligned(4)));
 
 #ifndef UNITTEST
 _Static_assert(sizeof(struct ext_le_parameter) == 28, "SDK ext_le_parameter size");

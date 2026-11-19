@@ -12,6 +12,13 @@
 #endif
 #define BTCTRLER_CONFIG_ASSER BTCTRLER_CONFIG
 
+/* Our changes to the SDK controller ("Our change:", btctrlermod_*), on in
+ * the app on both chips.  The BD19 audit build (tools/btctrler/vanilla.mk)
+ * sets 0: the SDK's behaviour, which its objects are compared with. */
+#ifndef BTCTRLERMOD
+#define BTCTRLERMOD 1
+#endif
+
 /* lmp.c's file-static ACL slot; the archive build gives it external linkage. */
 extern struct lmp_connection lmp_acl_link[1];
 extern u8 lmp_dut_en, lmp_dut_phone_en;
@@ -44,12 +51,17 @@ static inline int cpu_in_irq(void)
     __asm__ volatile("%0 = icfg" : "=r"(flag));
     return flag & 0xff;
 }
+#ifdef CONFIG_CPU_BD19
+/* The BD19 SDK supplies this in its runtime, with its own IRQ mask level. */
+int cpu_irq_disabled(void);
+#else
 static inline int cpu_irq_disabled(void)
 {
     int flag;
     __asm__ volatile("%0 = icfg" : "=r"(flag));
     return (flag & 0x300) != 0x300 || *(volatile u32 *)0x10f1a8 == 6;
 }
+#endif
 #else
 int cpu_in_irq(void);
 int cpu_irq_disabled(void);
@@ -89,5 +101,11 @@ void btctrlermod_air_rx(void);
 int btctrlermod_host_acl_room(void);
 void btctrlermod_host_ready(void);
 void *btctrlermod_dma_first(struct _dma_head *head);   /* hw_dma.c: the oldest, not taken */
+
+/* link_layer.c: our own LL_VERSION_IND exchange is under way (ll_slave.c). */
+u8 ll_version_exchange_pending(struct le_link *link);
+/* platform_jieli.c (BR23): around hci_controller_init (task_dispatch.c). */
+void btctrlermod_init_begin(void);
+void btctrlermod_init_end(void);
 
 #endif

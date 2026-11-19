@@ -5,10 +5,25 @@
 #include <string.h>
 #include "btctrler/glue.h"
 
+#ifdef CONFIG_CPU_BD19
+#define ACL_MEMCPY __builtin_memcpy
+#else
+#define ACL_MEMCPY memcpy
+#endif
+
 #ifndef UNITTEST
 _Static_assert(offsetof(struct bredr_tx_bulk, payload_head) == 24 &&
-               offsetof(struct bredr_rx_bulk, payload_head) == 24,
-               "SDK bulk header offsets");
+               offsetof(struct bredr_tx_bulk, data) == 28,
+               "SDK transmit bulk header offsets");
+#ifdef CONFIG_CPU_BD19
+_Static_assert(offsetof(struct bredr_rx_bulk, payload_head) == 20 &&
+               offsetof(struct bredr_rx_bulk, data) == 24,
+               "SDK BD19 receive bulk header offsets");
+#else
+_Static_assert(offsetof(struct bredr_rx_bulk, payload_head) == 24 &&
+               offsetof(struct bredr_rx_bulk, data) == 28,
+               "SDK BR23 receive bulk header offsets");
+#endif
 #endif
 
 static u16 acl_handle(const u8 *packet) { return packet[0] | (packet[1] & 0x0f) << 8; }
@@ -32,8 +47,10 @@ int lmp_hci_send_packet_standard(const u8 *packet, int len)
     /* Off interrupts the allocator waits for space, so only an IRQ-context
      * caller sees NULL; the SDK then copied through it. */
     struct bredr_tx_bulk *tx = bredr_tx_bulk_alloc(size);
+#ifndef CONFIG_CPU_BD19
     if (!tx) { btctrler_assert_failed("ACL transmit allocation", size); return 0; }
-    memcpy(tx->data, packet + 4, size);
+#endif
+    ACL_MEMCPY(tx->data, packet + 4, size);
     tx->offset = 0;
     tx->len = size;
     tx->event_post = LMP_EVENT_ACL_TX_POST;
@@ -63,7 +80,12 @@ int lmp_hci_send_packet(u8 *packet, int len)
         return 0;
     }
     int size = len - 4;
+#ifdef CONFIG_CPU_BD19
+    /* BD19 zero-extends the 16-bit capacity before the signed length test. */
+    if (size > tx->len) btctrler_assert_failed("len - 4 <= tx->len", len);
+#else
     if (size > (s16)tx->len) btctrler_assert_failed("len - 4 <= tx->len", len);
+#endif
     if (sniff_support_reset_anchor_point) lmp_sniff_pre_anchor_point_reset(conn);
     bredr_tx_bulk_realloc(tx, size);
     tx->offset = 0;
@@ -139,16 +161,31 @@ int main(void)
     packet[1] = 0x32;                       /* boundary 11 is not a continuation */
     reset(); lmp_hci_send_packet_standard(packet, 9); CHECK(last->llid == 2);
     reset(); found = 0; lmp_hci_send_packet_standard(packet, 9); CHECK(!queued && !last);
+#ifndef CONFIG_CPU_BD19
     reset(); fail_alloc = 1; lmp_hci_send_packet_standard(packet, 9); CHECK(asserts == 1 && !queued);
+#endif
 
     reset(); CHECK(lmp_private_get_tx_remain_buffer() == 777);
     u8 *buffer = lmp_private_get_tx_packet_buffer(4 + 20);
     CHECK(buffer == last->payload_head && last->len == 20);
-    memcpy(buffer, (u8[]){ 0x34, 0x22, 6, 0 }, 4);
+    ACL_MEMCPY(buffer, (u8[]){ 0x34, 0x22, 6, 0 }, 4);
     CHECK(lmp_hci_send_packet(buffer, 4 + 6) == 0);
     CHECK(queued == 1 && reallocated == 6 && last->len == 6 && last->llid == 2 && anchors == 1 && !asserts);
     CHECK(last->event_post == LMP_EVENT_ACL_TX_POST);
     CHECK(lmp_hci_send_packet(buffer, 4 + 21) == 0 && asserts == 1);
+
+    /* The SDKs disagree on the 16-bit capacity comparison: BR23 sign-extends
+     * it, while BD19 zero-extends it. */
+    reset();
+    buffer = lmp_private_get_tx_packet_buffer(4 + 40000);
+    ACL_MEMCPY(buffer, (u8[]){ 0x34, 0x22, 0, 0 }, 4);
+    CHECK(lmp_hci_send_packet(buffer, 4 + 40000) == 0);
+#ifdef CONFIG_CPU_BD19
+    CHECK(!asserts && reallocated == 40000);
+#else
+    CHECK(asserts == 1);
+#endif
+
     found = 0; lmp_hci_send_packet(buffer, 10); CHECK(freed == 1 && !last);
     reset(); fail_alloc = 1; CHECK(!lmp_private_get_tx_packet_buffer(10));
 

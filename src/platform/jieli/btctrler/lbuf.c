@@ -12,6 +12,8 @@
 #include <stddef.h>
 #include "btctrler/glue.h"
 
+extern void log_print(int level, const char *tag, const char *format, ...);
+
 #define HENTRY sizeof(struct hentry)        /* 16 */
 #ifndef UNITTEST
 _Static_assert(sizeof(struct hentry) == 16 && sizeof(struct hfree) == 12 &&
@@ -31,6 +33,13 @@ static void list_insert_before(struct list_head *e, struct list_head *at)
 static struct hentry *entry_of(void *lbuf) { return (struct hentry *)((u8 *)lbuf - HENTRY); }
 static u32 round4(u32 n) { return (n + 3) & ~3u; }
 
+int lbuf_get_chunk_num_btctrler(u32 total_size, u32 chunk_size)
+{
+    /* The SDK counts a 12-byte pool prefix and 19 bytes per chunk overhead;
+     * both operands wrap as u32 before the unsigned division. */
+    return (int)((total_size - 12u) / (chunk_size + 19u));
+}
+
 /* The pool starts at the first word boundary in buf; its single free block
  * leaves 12 bytes of buf unused, as in the SDK (len - 28). */
 struct lbuff_head_btctrler *lbuf_init_btctrler(void *buf, u32 buf_len)
@@ -39,6 +48,10 @@ struct lbuff_head_btctrler *lbuf_init_btctrler(void *buf, u32 buf_len)
     if (misalign) {
         buf = (u8 *)buf + 4 - misalign;
         buf_len -= 4 - misalign;
+#ifdef CONFIG_CPU_BD19
+        log_print(1, NULL, "[Debug]: [LBUF]lbuf misalgin : 0x%x / 0x%x\r\n",
+                  (u32)(uintptr_t)buf, buf_len);
+#endif
     }
     struct lbuff_head_btctrler *head = buf;
     struct hfree *block = (struct hfree *)(head + 1);
@@ -88,15 +101,16 @@ void *lbuf_realloc_btctrler(void *lbuf, int size)
     struct hentry *a = entry_of(lbuf);
     size = round4(size);
     if (!(size < a->len)) btctrler_assert_failed("lbuf realloc grows", size);
-    if ((u32)size > (u32)(a->len - HENTRY)) return 0;
+    u32 rounded_size = (u32)size;
+    if (rounded_size > (u32)(a->len - HENTRY)) return 0;
     local_irq_disable();
-    if ((u32)(size + 2 * HENTRY) < a->len) {
-        struct hentry *tail = (struct hentry *)((u8 *)lbuf + size);
+    if (rounded_size + 2u * (u32)HENTRY < a->len) {
+        struct hentry *tail = (struct hentry *)((u8 *)lbuf + rounded_size);
         tail->head = a->head;
-        tail->len = a->len - size - HENTRY;
+        tail->len = (u16)((u32)a->len - rounded_size - (u32)HENTRY);
         tail->ref = 0;
         list_init(&tail->entry);
-        a->len = size + HENTRY;
+        a->len = (u16)(rounded_size + (u32)HENTRY);
         lbuf_free_btctrler(tail + 1);
     }
     local_irq_enable();
@@ -116,7 +130,12 @@ void lbuf_free_btctrler(void *lbuf)
     for (e = head->free.next; e != &head->free; e = e->next) {
         struct hfree *p = (struct hfree *)e;
         if ((u8 *)p > (u8 *)block) break;
-        if ((u8 *)p + p->len > (u8 *)block) goto out;   /* inside a free block: double free */
+        if ((u8 *)p + p->len > (u8 *)block) {
+#ifdef CONFIG_CPU_BD19
+            log_print(4, NULL, "<Error>: [LBUF]free-err: %x\r\n\r\n", lbuf);
+#endif
+            goto out;   /* inside a free block: double free */
+        }
     }
     list_insert_before(&block->entry, e);
     /* Merge each free block that ends where the next one starts. */
@@ -160,7 +179,9 @@ void lbuf_push_btctrler(void *lbuf)
     struct hentry *a = entry_of(lbuf);
     local_irq_disable();
     a->state = 0;
-    if (a->ref++ == 0) list_insert_before(&a->entry, &a->head->head);
+    u8 old_ref = (u8)a->ref;
+    a->ref = (char)(u8)(old_ref + 1u);  /* SDK refcount increments modulo 256. */
+    if (old_ref == 0) list_insert_before(&a->entry, &a->head->head);
     local_irq_enable();
 }
 
@@ -169,6 +190,14 @@ static struct hentry *first_with_state(struct lbuff_head_btctrler *head, u8 stat
     for (struct list_head *e = head->head.next; e != &head->head; e = e->next)
         if (((struct hentry *)e)->state == state) return (struct hentry *)e;
     return 0;
+}
+
+bool lbuf_more_data_btctrler(struct lbuff_head_btctrler *head)
+{
+    local_irq_disable();
+    bool found = first_with_state(head, 0) != NULL;
+    local_irq_enable();
+    return found;
 }
 
 void *lbuf_pop_btctrler(struct lbuff_head_btctrler *head)
@@ -188,6 +217,14 @@ void *lbuf_peek_btctrler(struct lbuff_head_btctrler *head)
     return a ? a + 1 : 0;
 }
 
+void *lbuf_query_used_btctrler(struct lbuff_head_btctrler *head)
+{
+    local_irq_disable();
+    struct hentry *a = first_with_state(head, 1);
+    local_irq_enable();
+    return a ? a + 1 : NULL;
+}
+
 /* Whether a block of len bytes would fit. */
 u32 lbuf_remain_len_btctrler(struct lbuff_head_btctrler *head, u32 len)
 {
@@ -200,8 +237,36 @@ u32 lbuf_remain_len_btctrler(struct lbuff_head_btctrler *head, u32 len)
     return fits;
 }
 
-/* The SDK logged the pool's blocks here. */
-void lbuf_debug_btctrler(struct lbuff_head_btctrler *head, u8 flag) { (void)head; (void)flag; }
+/* The SDK's diagnostic flag is unused: both lists are logged every call. */
+void lbuf_debug_btctrler(struct lbuff_head_btctrler *head, u8 flag)
+{
+#ifdef CONFIG_CPU_BD19
+    (void)flag;
+    local_irq_disable();
+    for (struct list_head *e = head->head.next; e != &head->head; e = e->next) {
+        struct hentry *a = (struct hentry *)e;
+        log_print(2, NULL, "[Info]: [LBUF]alloc %x - %d\r\n\r\n", a, (u32)a->len);
+    }
+    for (struct list_head *e = head->free.next; e != &head->free; e = e->next) {
+        struct hfree *p = (struct hfree *)e;
+        log_print(2, NULL, "[Info]: [LBUF]free %x - %d\r\n\r\n", p, (u32)p->len);
+        log_print(2, NULL, "[Info]: [LBUF]freenext %x - %x\r\n\r\n", p, p->entry.next);
+    }
+    local_irq_enable();
+#else
+    (void)head;
+    (void)flag;
+#endif
+}
+
+void lbuf_info_btctrler(struct lbuff_head_btctrler *head)
+{
+    log_print(2, NULL, "[Info]: [LBUF]lbuf_free_list_info\r\n");
+    for (struct list_head *e = head->free.next; e != &head->free; e = e->next) {
+        struct hfree *p = (struct hfree *)e;
+        log_print(2, NULL, "[Info]: [LBUF]p = 0x%x,\tlen = 0x%x\r\n", p, (u32)p->len);
+    }
+}
 
 /* ---- a caller's queue ------------------------------------------------- */
 
@@ -251,10 +316,15 @@ void lbuf_clear_queue_btctrler(struct list_head *head)
 #include "test.h"
 int config_asser;
 static int asserts, irq;
+static int logs, last_log_level;
+static const char *last_log_format;
 void btctrler_assert_failed(const char *what, int value) { (void)what; (void)value; asserts++; }
+void log_print(int level, const char *tag, const char *format, ...)
+{ (void)tag; logs++; last_log_level = level; last_log_format = format; }
 void local_irq_disable(void) { irq++; }
 void local_irq_enable(void) { irq--; }
 static union { u8 b[4096 + 8]; u64 align; } mem;
+static union { u8 b[70008]; u64 align; } bigmem;
 /* Free blocks in address order, none adjacent, none overlapping a live one. */
 static int check(struct lbuff_head_btctrler *h, void **live, int n)
 {
@@ -272,9 +342,18 @@ static int check(struct lbuff_head_btctrler *h, void **live, int n)
 }
 int main(void)
 {
+    CHECK(lbuf_get_chunk_num_btctrler(100, 1) == 4);
+    CHECK((u32)lbuf_get_chunk_num_btctrler(0, 10) == (UINT32_MAX - 11u) / 29u);
     /* Misaligned buffer: moved to the next word. */
+    logs = 0;
     struct lbuff_head_btctrler *h = lbuf_init_btctrler(mem.b + 1, 4096);
     CHECK((u8 *)h == mem.b + 4 && !irq);
+#ifdef CONFIG_CPU_BD19
+    CHECK(logs == 1 && last_log_level == 1 &&
+          strcmp(last_log_format, "[Debug]: [LBUF]lbuf misalgin : 0x%x / 0x%x\r\n") == 0);
+#else
+    CHECK(logs == 0);
+#endif
     const int whole = 4096 - 3 - (int)sizeof(*h) - 12;
     CHECK(check(h, 0, 0) == whole && lbuf_empty_btctrler(h));
 
@@ -299,6 +378,11 @@ int main(void)
     }
     for (int i = 0; i < 64; i++) { lbuf_free_btctrler(live[i]); live[i] = 0; }
     CHECK(check(h, 0, 0) == whole && h->free.next->next == &h->free && !irq);
+
+    /* The stored free-block size is 16-bit, as in the SDK header. */
+    struct lbuff_head_btctrler *large = lbuf_init_btctrler(bigmem.b, 70000);
+    CHECK(large->free.next != &large->free);
+    CHECK(((struct hfree *)large->free.next)->len == (u16)(70000u - sizeof(*large) - 12u));
 
     /* No fit; a block too small to split is taken whole. */
     CHECK(!lbuf_alloc_btctrler(h, 5000));
@@ -330,7 +414,19 @@ int main(void)
     a = lbuf_alloc_btctrler(h, 8); b = lbuf_alloc_btctrler(h, 8);
     lbuf_push_btctrler(a); lbuf_push_btctrler(b); lbuf_push_btctrler(a);   /* again: counted */
     CHECK(entry_of(a)->ref == 2 && !lbuf_empty_btctrler(h));
+    CHECK(lbuf_more_data_btctrler(h) && lbuf_query_used_btctrler(h) == NULL);
+    logs = 0;
+    lbuf_debug_btctrler(h, 0xff);
+#ifdef CONFIG_CPU_BD19
+    CHECK(logs == 4 && last_log_level == 2 && !irq);
+#else
+    CHECK(logs == 0 && !irq);
+#endif
+    logs = 0;
+    lbuf_info_btctrler(h);
+    CHECK(logs == 2 && last_log_level == 2 && !irq);
     CHECK(lbuf_peek_btctrler(h) == a && lbuf_pop_btctrler(h) == a && lbuf_pop_btctrler(h) == b);
+    CHECK(lbuf_query_used_btctrler(h) == a && lbuf_more_data_btctrler(h) == false);
     CHECK(!lbuf_pop_btctrler(h) && !lbuf_peek_btctrler(h));
     lbuf_push_btctrler(a); CHECK(lbuf_pop_btctrler(h) == a);              /* state back to 0 */
     lbuf_free_btctrler(a); CHECK(lbuf_peek_btctrler(h) == 0 && !lbuf_empty_btctrler(h));
@@ -344,6 +440,17 @@ int main(void)
     CHECK(entry_of(a)->entry.next == &entry_of(a)->entry);
     lbuf_free_btctrler(a);
     lbuf_clear_queue_btctrler(&q); CHECK(!lbuf_peek_queue_btctrler(&q) && check(h, 0, 0) == whole && !irq);
+
+    /* ref is an i8 counter: its pre-increment zero test and wrap are observable. */
+    void *wrap = lbuf_alloc_btctrler(h, 8);
+    entry_of(wrap)->ref = (char)0xff;
+    lbuf_push_btctrler(wrap);
+    CHECK((u8)entry_of(wrap)->ref == 0 && lbuf_empty_btctrler(h));
+    for (int i = 0; i < 256; ++i) lbuf_push_btctrler(wrap);
+    CHECK((u8)entry_of(wrap)->ref == 0 && !lbuf_empty_btctrler(h));
+    CHECK(lbuf_pop_btctrler(h) == wrap && lbuf_query_used_btctrler(h) == wrap);
+    lbuf_free_btctrler(wrap);
+    CHECK(lbuf_empty_btctrler(h) && check(h, 0, 0) == whole);
     return TEST_DONE("btctrler_lbuf");
 }
 #endif

@@ -3,7 +3,10 @@
 #include "btctrler/glue.h"
 #include <string.h>
 
-static u8 nv_memory_pool[256] __attribute__((section(".non_volatile_ram")));
+/* Both SDK objects use this private, zero-initialized 256-byte pool in
+ * .non_volatile_ram with byte alignment. */
+static u8 nv_memory_pool[256]
+    __attribute__((section(".non_volatile_ram"), aligned(1)));
 
 void nv_memory_apply(void)
 {

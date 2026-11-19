@@ -27,20 +27,84 @@ extern void pseudo_random_genrate(u8 *buffer, u32 length);
 
 #define LL_CODE __attribute__((section(".ble_ll_code")))
 
+#ifdef CONFIG_CPU_BD19
+#define LL_CALLBACK_STATE static
+#else
+#define LL_CALLBACK_STATE
+#endif
+
 static u16 ll_update_handle __attribute__((section(".ble_ll_data"), aligned(2)));
-void (*ll_vendor_update_req_handle)(u8 *, u16)
+LL_CALLBACK_STATE void (*ll_vendor_update_req_handle)(u8 *, u16)
     __attribute__((section(".ble_ll_data"), aligned(4)));
-u16 (*ble_vendor_custom_cmds_handle)(u8 *, u8 *)
+LL_CALLBACK_STATE u16 (*ble_vendor_custom_cmds_handle)(u8 *, u8 *)
     __attribute__((section(".ble_ll_data"), aligned(4)));
-u16 (*ble_vendor_priv_cmd_handle)(u8 *, u8 *)
+LL_CALLBACK_STATE u16 (*ble_vendor_priv_cmd_handle)(u8 *, u8 *)
     __attribute__((section(".ble_ll_data"), aligned(4)));
 static const char test_name[10] __attribute__((section(".ble_ll_const"), aligned(1))) = "autotest";
+
+void update_ll_send_control_data(struct le_link *link, u8 btupdate_sw,
+                                 u16 len, u8 seek_type, u32 seek_offsize) LL_CODE;
+void update_ll_send_control_data(struct le_link *link, u8 btupdate_sw,
+                                 u16 len, u8 seek_type, u32 seek_offsize)
+{
+    ll_send_control_data(link, 70, "2222", (int)btupdate_sw, (int)len,
+                         (int)seek_type, (int)seek_offsize);
+}
 
 int ll_get_update_handle(void) LL_CODE;
 int ll_get_update_handle(void) { return ll_update_handle; }
 
 void ll_set_update_handle(u16 handle) LL_CODE;
 void ll_set_update_handle(u16 handle) { ll_update_handle = handle; }
+
+int ll_update_send_data_handle(u8 btupdate_sw, u16 len, u8 seek_type,
+                               u32 seek_offsize) LL_CODE;
+int ll_update_send_data_handle(u8 btupdate_sw, u16 len, u8 seek_type,
+                               u32 seek_offsize)
+{
+    struct le_link *link = ll_link_for_handle((int)ll_update_handle);
+    if (!link) return -1;
+    update_ll_send_control_data(link, btupdate_sw, len, seek_type, seek_offsize);
+    return 0;
+}
+
+void ll_vendor_update_req_handle_register(void (*handle)(u8 *, u16)) LL_CODE;
+void ll_vendor_update_req_handle_register(void (*handle)(u8 *, u16))
+{
+    ll_vendor_update_req_handle = handle;
+}
+
+void unregister_ll_update_handle(void) LL_CODE;
+void unregister_ll_update_handle(void)
+{
+    struct le_link *link = ll_link_for_handle((int)ll_update_handle);
+    if (!link) return;
+    link->rx_update_handle = NULL;
+    link->ll_delete_hook = NULL;
+}
+
+void register_ll_update_handle(void (*rx_handler)(void *, u8 *, u32),
+                               void (*hook)(void *)) LL_CODE;
+void register_ll_update_handle(void (*rx_handler)(void *, u8 *, u32),
+                               void (*hook)(void *))
+{
+    struct le_link *link = ll_link_for_handle((int)ll_update_handle);
+    if (!link) return;
+    link->rx_update_handle = rx_handler;
+    link->ll_delete_hook = hook;
+}
+
+void ble_vendor_custom_cmds_handle_register(u16 (*handle)(u8 *, u8 *)) LL_CODE;
+void ble_vendor_custom_cmds_handle_register(u16 (*handle)(u8 *, u8 *))
+{
+    ble_vendor_custom_cmds_handle = handle;
+}
+
+void ble_vendor_priv_cmd_handle_register(u16 (*handle)(u8 *, u8 *)) LL_CODE;
+void ble_vendor_priv_cmd_handle_register(u16 (*handle)(u8 *, u8 *))
+{
+    ble_vendor_priv_cmd_handle = handle;
+}
 
 static void __slave_ll_receive_conn_update_req_done(struct le_link *link) LL_CODE;
 static void __slave_ll_receive_conn_update_req_done(struct le_link *link)
@@ -325,10 +389,15 @@ static void __conn_slave_rx_post_handler(void *priv, struct ble_rx *rx)
         le_param.remote_versnr = p[0];
         le_param.remote_compld = btctler_little_endian_read_16(p, 1);
         le_param.remote_subversnr = btctler_little_endian_read_16(p, 3);
-        /* The SDK answered only with no procedure of ours running: one that was
-         * (a length request just after connecting) left the peer's exchange
-         * unanswered for good, and an Android central then never encrypts. */
+#if BTCTRLERMOD
+        /* Our change: the SDK answered only with no procedure of ours running:
+         * one that was (a length request just after connecting) left the peer's
+         * exchange unanswered for good, and an Android central then never
+         * encrypts. */
         if (!ll_version_exchange_pending(link))
+#else
+        if (ll_current_no_step(link) != 0)
+#endif
             ll_send_control_data(link, 12, "122", (int)le_param.versnr, (int)le_param.compld, (int)le_param.subversnr);
         break;
     case 13:
@@ -469,6 +538,58 @@ void conn_slave_rx_post_handler(struct le_link *link)
 #ifdef UNITTEST
 #include "test.h"
 
+static struct le_link test_link;
+static int lookup_enabled = 1, lookup_calls, control_calls, control_opcode;
+static int control_args[4];
+static int version_response_calls, version_response_args[3];
+static int gate_no_step_result, gate_version_pending_result;
+static int no_step_calls, version_pending_calls, verify_calls, state_machine_calls;
+struct le_parameter le_param;
+int config_btctler_le_roles;
+u64 config_btctler_le_features;
+u8 log_tag_const_i_LL_S, log_tag_const_e_LL_S;
+
+struct le_link *ll_link_for_handle(int handle)
+{
+    lookup_calls++;
+    CHECK(handle == (int)ll_get_update_handle());
+    return lookup_enabled ? &test_link : NULL;
+}
+void ll_send_control_data(struct le_link *link, int opcode, const char *format, ...)
+{
+    va_list ap;
+    CHECK(link == &test_link && format != NULL);
+    va_start(ap, format);
+    if (strcmp(format, "122") == 0) {
+        for (int i = 0; i < 3; i++) version_response_args[i] = va_arg(ap, int);
+        version_response_calls++;
+        CHECK(opcode == 12);
+    } else {
+        CHECK(strcmp(format, "2222") == 0);
+        for (int i = 0; i < 4; i++) control_args[i] = va_arg(ap, int);
+        control_calls++;
+        control_opcode = opcode;
+    }
+    va_end(ap);
+}
+ll_step ll_current_no_step(struct le_link *link)
+{ CHECK(link == &test_link); no_step_calls++; return gate_no_step_result; }
+#if BTCTRLERMOD
+u8 ll_version_exchange_pending(struct le_link *link)
+{ CHECK(link == &test_link); version_pending_calls++; return gate_version_pending_result; }
+#endif
+u16 btctler_little_endian_read_16(const u8 *buffer, int pos)
+{ return (u16)(buffer[pos] | ((u16)buffer[pos + 1] << 8)); }
+void ll_control_step_verify(ll_step_extend step_ex, struct le_link *link, struct ble_rx *rx)
+{ CHECK(step_ex == (12 | 16384) && link == &test_link && rx != NULL); verify_calls++; }
+void ll_send_control_data_state_machine(struct le_link *link, struct ble_rx *rx)
+{ CHECK(link == &test_link && rx != NULL); state_machine_calls++; }
+static void test_vendor_update_cb(u8 *data, u16 len) { (void)data; (void)len; }
+static void test_rx_update_cb(void *priv, u8 *data, u32 len)
+{ (void)priv; (void)data; (void)len; }
+static void test_delete_cb(void *priv) { (void)priv; }
+static u16 test_vendor_cmd_cb(u8 *data, u8 *rsp) { (void)data; (void)rsp; return 0; }
+
 int main(void)
 {
     CHECK(ll_get_update_handle() == 0);
@@ -476,8 +597,75 @@ int main(void)
     CHECK(ll_get_update_handle() == 0x1234);
     ll_set_update_handle(0xffff);
     CHECK(ll_get_update_handle() == 0xffff);
+    /* Control-data forwarding preserves zero extension of byte/word args. */
+    update_ll_send_control_data(&test_link, 0xa5, 0xfedc, 0x81, 0x87654321);
+    CHECK(control_calls == 1 && control_opcode == 70);
+    CHECK(control_args[0] == 0xa5 && control_args[1] == 0xfedc &&
+          control_args[2] == 0x81 && (u32)control_args[3] == 0x87654321u);
+    ll_set_update_handle(0x1234);
+    lookup_enabled = 1;
+    CHECK(ll_update_send_data_handle(0xfe, 0x9876, 0x81, 0xfedcba98) == 0);
+    CHECK(control_calls == 2 && control_args[0] == 0xfe && control_args[1] == 0x9876 &&
+          control_args[2] == 0x81 && (u32)control_args[3] == 0xfedcba98u);
+    lookup_enabled = 0;
+    CHECK(ll_update_send_data_handle(1, 2, 3, 4) == -1 && control_calls == 2);
+    lookup_enabled = 1;
+
+    ll_vendor_update_req_handle_register(test_vendor_update_cb);
+    CHECK(ll_vendor_update_req_handle == test_vendor_update_cb);
+    ble_vendor_custom_cmds_handle_register(test_vendor_cmd_cb);
+    CHECK(ble_vendor_custom_cmds_handle == test_vendor_cmd_cb);
+    ble_vendor_priv_cmd_handle_register(test_vendor_cmd_cb);
+    CHECK(ble_vendor_priv_cmd_handle == test_vendor_cmd_cb);
+    register_ll_update_handle(test_rx_update_cb, test_delete_cb);
+    CHECK(test_link.rx_update_handle == test_rx_update_cb && test_link.ll_delete_hook == test_delete_cb);
+    unregister_ll_update_handle();
+    CHECK(test_link.rx_update_handle == NULL && test_link.ll_delete_hook == NULL);
+    lookup_enabled = 0;
+    register_ll_update_handle(test_rx_update_cb, test_delete_cb);
+    unregister_ll_update_handle();
+    CHECK(test_link.rx_update_handle == NULL && test_link.ll_delete_hook == NULL);
+    CHECK(lookup_calls == 6);
     ll_set_update_handle(0);
     CHECK(ll_get_update_handle() == 0);
+
+    /* Both vanilla targets use the SDK no-step gate for LL_VERSION_IND. */
+    u8 version_rx_storage[offsetof(struct ble_rx, data) + 6] = {0};
+    struct ble_rx *version_rx = (struct ble_rx *)version_rx_storage;
+    version_rx->llid = 3;
+    version_rx->len = 6;
+    version_rx->data[0] = 12;
+    version_rx->data[1] = 0x31;
+    version_rx->data[2] = 0x42;
+    version_rx->data[3] = 0x53;
+    version_rx->data[4] = 0x64;
+    version_rx->data[5] = 0x75;
+    le_param.versnr = 0xa1;
+    le_param.compld = 0xb2c3;
+    le_param.subversnr = 0xd4e5;
+    config_btctler_le_roles = 2;
+    int prior_responses = version_response_calls;
+    int prior_verify = verify_calls, prior_state_machine = state_machine_calls;
+    for (int no_step = 0; no_step <= 1; no_step++) {
+        for (int pending = 0; pending <= 1; pending++) {
+            gate_no_step_result = no_step;
+            gate_version_pending_result = pending;
+            __conn_slave_rx_post_handler(&test_link, version_rx);
+            CHECK(version_response_calls == prior_responses + (BTCTRLERMOD ? !pending : no_step));
+            prior_responses = version_response_calls;
+            CHECK(le_param.remote_versnr == 0x31 && le_param.remote_compld == 0x5342 &&
+                  le_param.remote_subversnr == 0x7564);
+            CHECK(verify_calls == prior_verify + 1 && state_machine_calls == prior_state_machine + 1);
+            prior_verify = verify_calls;
+            prior_state_machine = state_machine_calls;
+            if (version_response_calls > 0) {
+                CHECK(version_response_args[0] == 0xa1 && version_response_args[1] == 0xb2c3 &&
+                      version_response_args[2] == 0xd4e5);
+            }
+        }
+    }
+    CHECK(BTCTRLERMOD ? no_step_calls == 0 && version_pending_calls == 4
+                      : no_step_calls == 4 && version_pending_calls == 0);
     return TEST_DONE("btctrler_ll_slave");
 }
 #endif

@@ -34,6 +34,7 @@ void lmp_format_packet(struct bredr_tx_bulk *tx, const char *format, va_list arg
         ++format;
     }
 }
+#ifndef CONFIG_CPU_BD19
 static int send_control(struct lmp_connection *conn, const char *format, va_list args, int response)
 {
     if (!conn || !conn->link || !format) return -22;
@@ -63,6 +64,43 @@ int lmp_response(struct lmp_connection *conn, const char *format, ...)
     va_end(args);
     return result;
 }
+#else
+static struct bredr_tx_bulk *alloc_control(void)
+{
+    struct bredr_tx_bulk *tx = bredr_tx_bulk_alloc(17);
+    if (!tx) btctrler_assert_failed("LMP transmit allocation", 0);
+    return tx;
+}
+
+static void send_control(struct bredr_tx_bulk *tx, struct lmp_connection *conn,
+                         int response)
+{
+    if (response) tx->data[0] |= conn->tran_id;
+    else if (conn->core.role == 1) tx->data[0] |= 1;
+    link_conn_tx_bulk_avaiable(conn->link, tx);
+}
+
+int lmp_request(struct lmp_connection *conn, const char *format, ...)
+{
+    if (!(config_btctler_modules & 1)) return 0;
+    struct bredr_tx_bulk *tx = alloc_control();
+    va_list args; va_start(args, format);
+    lmp_format_packet(tx, format, args);
+    va_end(args);
+    send_control(tx, conn, 0);
+    return 0;
+}
+
+int lmp_response(struct lmp_connection *conn, const char *format, ...)
+{
+    struct bredr_tx_bulk *tx = alloc_control();
+    va_list args; va_start(args, format);
+    lmp_format_packet(tx, format, args);
+    va_end(args);
+    send_control(tx, conn, 1);
+    return 0;
+}
+#endif
 
 #ifdef UNITTEST
 #include <assert.h>
@@ -163,6 +201,7 @@ int main(void)
         assert(allocations == 1 && queued == 1);
     }
     reset();
+#ifndef CONFIG_CPU_BD19
     assert(lmp_request(NULL, "11", serial_arg) == -22);
     assert(lmp_response(NULL, "11", serial_arg) == -22);
     assert(lmp_request(&connection, NULL) == -22);
@@ -173,12 +212,18 @@ int main(void)
     assert(!allocations && !queued && !serialized);
     config_btctler_modules = 0;
     assert(lmp_request(NULL, NULL) == 0);
+#else
+    config_btctler_modules = 0;
+    assert(lmp_request(NULL, NULL) == 0);
+#endif
     reset(); allocation_fails = 1;
+#ifndef CONFIG_CPU_BD19
     assert(lmp_request(&connection, "11", serial_arg) == -22);
     assert(allocations == 1 && assertions == 1 && !serialized && !queued);
     reset(); allocation_fails = 1;
     assert(lmp_response(&connection, "11", serial_arg) == -22);
     assert(allocations == 1 && assertions == 1 && !serialized && !queued);
+#endif
     reset();
     puts("btctrler LMP control transmit tests passed");
 }
