@@ -340,11 +340,13 @@ TRIGGER_LABELS = {'held': 'is held', 'held_for': 'is held for', 'pressed': 'is p
                   'double_tapped': 'is double-tapped within'}
 EFFECT_LABELS = {'hold': 'hold', 'turbo': 'turbo', 'nothing': 'nothing', 'tap': 'tap',
                  'toggle_hold': 'toggle hold', 'toggle_turbo': 'toggle turbo',
-                 'turbo_modifier': 'turbo modifier', 'toggle_turbo_modifier': 'toggle turbo modifier'}
+                 'turbo_modifier': 'turbo modifier', 'toggle_turbo_modifier': 'toggle turbo modifier',
+                 'macro': 'macro', 'play_macro': 'play macro', 'toggle_macro': 'toggle macro'}
 # Switching between a level and an event trigger keeps the effect's kind.
 EFFECT_TWINS = {'hold': 'tap', 'tap': 'hold', 'toggle_hold': 'hold', 'turbo': 'toggle_turbo',
                 'toggle_turbo': 'turbo', 'turbo_modifier': 'toggle_turbo_modifier',
-                'toggle_turbo_modifier': 'turbo_modifier'}
+                'toggle_turbo_modifier': 'turbo_modifier', 'macro': 'play_macro', 'play_macro': 'macro',
+                'toggle_macro': 'macro'}
 RATES = tuple(str(hz) for hz in range(1, padremap.MAX_HZ + 1)) + ('max',)
 
 
@@ -625,7 +627,12 @@ class RemapEditor(ttk.Frame):
         effects = [e for e in padremap.effects_for(rule['trigger']) if e != 'nothing' or rule['effect'] == 'nothing']
         self.combo(table, [EFFECT_LABELS[e] for e in effects], EFFECT_LABELS[rule['effect']], 12,
                    lambda v: self.change(lambda: rule.update(effect=value_of(EFFECT_LABELS, v)))).grid(row=line, column=4, sticky='w', padx=(8, 2))
-        if rule['effect'] != 'nothing':
+        if rule['effect'] in padremap.MACRO_EFFECTS:      # the slot's macro by number (its macros page)
+            box = self.combo(table, [str(n) for n in range(1, padremap.MACROS + 1)], str(rule['macro']), 4,
+                             lambda v: self.change(lambda: rule.update(macro=int(v)), redraw=False))
+            box.grid(row=line, column=5, sticky='w', padx=2)
+            Tooltip(box, lambda: 'Which of this slot’s macros (its Macros page), 1 the first')
+        elif rule['effect'] != 'nothing':
             modifier = rule['effect'] in padremap.MODIFIERS
             picker = KeyPicker(table, rule['outputs'], empty='Choose keys…',
                                on_toggle=lambda k, on: self.change(lambda: self.output(rule, k, on), redraw=False))
