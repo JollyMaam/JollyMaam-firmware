@@ -27,10 +27,17 @@ def devices():
     input_len (its feature and input report's bytes, without the ID) and
     descriptor (Linux) or usage_page and out_len (Windows)."""
     if sys.platform == "linux":
-        return _linux_devices()
+        return [hid for hid in _linux_devices() if hid["open"]]
     if sys.platform == "win32":
         return _windows_devices()
     return []
+
+
+def closed():
+    """Linux: the HID interfaces there that we may not open (no udev rule
+    for them, or a container without their node), as devices() gives them,
+    so a stock pad can say why it can't be used rather than not appear."""
+    return [hid for hid in _linux_devices() if not hid["open"]] if sys.platform == "linux" else []
 
 
 def write(path, data):
@@ -77,9 +84,7 @@ def _linux_devices():
     for sys_node in sorted(Path("/sys/class/hidraw").glob("hidraw*")):
         name = sys_node.name
         path = dev_path(name)
-        if not os.access(path, os.R_OK | os.W_OK):
-            continue
-        hid = {"path": path, "vid": 0, "product": 0, "bcd": 0, "manufacturer": "", "product_name": "",
+        hid = {"path": path, "open": os.access(path, os.R_OK | os.W_OK), "vid": 0, "product": 0, "bcd": 0, "manufacturer": "", "product_name": "",
                "location": None, "descriptor": _read(sys_node / "device/report_descriptor", True)}
         hid["feature_len"] = feature_bytes(hid["descriptor"])
         hid["input_len"] = feature_bytes(hid["descriptor"], 0x80)

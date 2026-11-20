@@ -9,6 +9,7 @@ import padhid
 
 # No test may reach a real HID device.
 padhid.devices = lambda: []
+padhid.closed = lambda: []
 padhid.write = lambda path, data: None
 
 

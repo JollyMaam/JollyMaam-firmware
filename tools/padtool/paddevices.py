@@ -50,6 +50,15 @@ def stock_records(hids=None):
                         "board": "stock", "identity": f"stock:{entry.pid}:{entry.name}:{entry.mode}".encode(),
                         "fields": [], "values": {}, "defaults": {}, "status": entry.mode,
                         "location": hid["location"], "product_id": entry.pid, "stock": entry})
+    seen = {r["location"] for r in records}
+    for hid, entry in padknown.stock_devices(padhid.closed()):
+        if hid["location"] not in seen:          # one we see, but may not open
+            records.append({"path": hid["path"], "name": f"{hid['manufacturer']} {hid['product_name']}".strip(),
+                            "board": "stock", "identity": f"stock:{entry.pid}:{entry.name}:{entry.mode}:closed".encode(),
+                            "fields": [], "values": {}, "defaults": {}, "status": entry.mode,
+                            "location": hid["location"], "product_id": entry.pid, "stock": entry,
+                            "closed": f"No access to {hid['path']}: on Linux a udev rule giving you read/write on it "
+                                      f"(USB {entry.vid:04x}:{entry.product:04x}), or in a container, its node passed in."})
     return records
 
 
