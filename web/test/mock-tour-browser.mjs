@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 const endpoint=process.argv[2] || 'http://127.0.0.1:9226';
 const base=process.argv[3] || new URL('../index.html', import.meta.url).href;
 const pages=await(await fetch(endpoint+'/json')).json();
-const ws=new WebSocket(pages[0].webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);
+const ws=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);
 let id=0;const pending=new Map(),errors=[];
 ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result);}else if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.exception?.description);};
 function send(method,params={}){return new Promise((resolve,reject)=>{const n=++id;pending.set(n,{resolve,reject});ws.send(JSON.stringify({id:n,method,params}));});}
@@ -24,6 +24,6 @@ await run('document.getElementById("mock-previous").click()');await step(6);asse
 await next(7);await next(8);assert.equal(await run('document.getElementById("home").hidden'),false);
 await go('mock=normal&outcome=failure&step=7');await step(7);assert.ok(await run('document.getElementById("mock-notice").textContent.includes("refused")'));
 await go('mock=normal&view=app&step=4');await step(4);assert.equal(await run('document.getElementById("padjob").hidden'),false);await next(5);assert.ok(await run('document.getElementById("actionresult").textContent.includes("Backed up")'));
-await go('mock=manual');assert.equal(await run('document.getElementById("managefw").hidden'),false);await next(1);await next(2);assert.ok(await run('document.querySelector(".device-package-status").textContent.includes("Need to manually enter bootloader")'));
+await go('mock=manual');assert.equal(await run('document.getElementById("homelist").hidden'),false);await next(1);await next(2);assert.ok(await run('document.querySelector(".device-package-status").textContent.includes("Need to manually enter bootloader")'));
 await go('mock=normal');await run('document.getElementById("mock-play").click()');await step(8);assert.equal(await run('document.getElementById("mock-play").textContent'),'Play');
 assert.deepEqual(errors,[]);console.log('Tour smoke passed: held loading/saving, validation, save, refusal, rewind/replay, disconnect, app progress and manual loader.');ws.close();

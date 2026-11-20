@@ -313,13 +313,13 @@ export async function createMock(params, schema) {
       notice.textContent = message;
     },
     controls(actions) {
-      if (params.has("review")) useDialogs((kind, message) => {
+      if (params.has("review")) useDialogs((kind, message, choices) => {
         if (kind === "confirm" && params.get("answer") !== "cancel") return true;
         let dialog = document.getElementById("review-dialog");
         if (!dialog) { dialog = document.createElement("section"); dialog.id = "review-dialog"; dialog.setAttribute("role", "dialog"); document.querySelector("main").prepend(dialog); }
         dialog.replaceChildren();
-        const title = document.createElement("strong"); title.textContent = kind === "confirm" ? "Browser confirmation" : "Browser alert";
-        const text = document.createElement("p"); text.textContent = message;
+        const title = document.createElement("strong"); title.textContent = kind === "alert" ? "Browser alert" : "Browser confirmation";
+        const text = document.createElement("p"); text.textContent = kind === "choose" ? `${message} [${choices.map((c) => c[1]).join(" / ")}]` : message;
         dialog.append(title, text); return false;
       });
       installControls(params, device, actions, mode);
@@ -403,13 +403,13 @@ function guidedActions(device, actions, params) {
         if (device.scenario !== "no_devices") await wait(() => document.querySelector("#homedevices button") || ["stock", "manual"].includes(device.scenario));
         break;
       case "manage":
-        click("#managefw");
         if (device.scenario === "no_devices") break;
-        await wait(() => document.querySelector("#managedevices button"));
-        await delay(120); click("#managedevices button");
+        await wait(() => document.querySelector("#homedevices button"));
+        await delay(120); click("#homedevices button");
+        await wait(() => !document.getElementById("device").hidden);
         if (device.scenario === "permission") {
-          await wait(() => !document.querySelector("#manage .ble-permission-help").hidden);
-          document.querySelector("#manage .ble-permission-help").open = true;
+          await wait(() => !document.querySelector("#home .ble-permission-help").hidden);
+          document.querySelector("#home .ble-permission-help").open = true;
         }
         break;
       case "backup":
@@ -435,7 +435,10 @@ function guidedActions(device, actions, params) {
       case "connect":
         await (device.scenario === "permission" ? actions.bluetooth() : actions.usb()); break;
       case "firmware":
-        document.getElementById("firmware").open = true; break;
+        if (!document.getElementById("config").hidden) click("#back");
+        await wait(() => !document.getElementById("device").hidden);
+        if (!document.getElementById("doupgrade").disabled) click("#doupgrade");
+        break;
       case "loading":
         device.hold = "fields"; pending = actions.usb();
         await wait(() => device.waiting === "fields"); break;
@@ -473,10 +476,10 @@ function guidedActions(device, actions, params) {
         editor.dispatchEvent(new Event("input", { bubbles: true })); break;
       }
       case "updatePrompt":
-        await wait(() => !document.getElementById("update").disabled);
+        await wait(() => document.getElementById("update") && !document.getElementById("update").disabled);
         await actions.update(); break;
       case "updateStart":
-        await wait(() => !document.getElementById("update").disabled);
+        await wait(() => document.getElementById("update") && !document.getElementById("update").disabled);
         device.hold = "update"; pending = actions.update();
         await wait(() => device.waiting === "update"); break;
       case "updateFinish":

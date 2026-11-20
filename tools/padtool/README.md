@@ -9,9 +9,10 @@ python tools/padtool/padgui.pyw
 On Linux, `./tools/padtool/padgui.pyw` also works. On Windows, double-click
 `padgui.pyw` to launch without a console window using the Python file association.
 Windows Python's installer includes Tcl/Tk by default. `make padtool-dist`
-builds a zip for Windows and Linux with padtool, bleak (64-bit Windows and
-x86-64 Linux, Python 3.11 to 3.14; on Linux a system bleak comes first),
-the RAM loaders and every board's firmware; its README.txt says how to use it. On Linux install your
+builds a zip for Windows and Linux (a release's python-jollymaam.zip) with
+padtool, bleak (64-bit Windows and x86-64 Linux, Python 3.11 to 3.14; on
+Linux a system bleak comes first), the firmware package and jollymaam; its
+README.txt says how to use it. On Linux install your
 Python distribution's Tk package (often `python3-tk`). With Nixpkgs:
 
 ```sh
@@ -34,10 +35,27 @@ leaves the Bluetooth link up when it is done, and the next run uses it, so a
 command takes a fraction of a second; the pad leaves config mode a minute
 after the last command (or on Home, or `padtool disconnect --ble`).
 
+The window has the web page's screens, as cards. Home: **Load Package**
+(the firmware package in use: the zip's `firmware` folder, else
+`build/firmware.zip`; **i** lists what it holds), **Refresh device list**,
+**Open device path…**, and a card per device. A device's card opens its
+page: what it is, and **Configure** (its settings, the slots in a tree
+beside them), **Install**, **Upgrade**, **Backup** and **Restore**, which
+run jollymaam (`$JOLLYMAAM`, else `padtool/bin` in the zip, else this tree's
+`build/host/jollymaam`, else PATH) on an action screen with its progress
+and output. A card is greyed out when the device can't do it, with the
+reason underneath. Over Bluetooth only Configure and Upgrade work (Upgrade
+through padtool's own updater client). **← Back** (or Alt+Left) goes back a
+screen; on the settings, **Discard** and **Apply** show while there are
+changes. The words come from the web page's catalog (`web/strings`, in the
+zip `padtool/strings`; `PADTOOL_LANG=de` or the system's language picks a
+translation there, as `?lang=` does on the page).
+
 Devices appear by themselves: every second padtool looks at our tool devices
 (an IDENTIFY each) and, on Linux, at disks it has not seen before, so ROM
-loaders appear too. **Refresh** in the toolbar looks at everything again; on
-Windows it is how ROM loaders are found (asking every drive is slow there).
+loaders appear too. **Refresh device list** looks at everything
+again; on Windows it is how ROM loaders are found (asking every drive is slow
+there).
 With `bleak` installed (`ps.bleak`), Refresh also looks for pads in config
 mode over Bluetooth LE (Home+M held for 3 s) for 3 seconds; one found shows
 as "Bluetooth" in the tree (a pad in its updater too) and stays while its link is up (the GUI's
@@ -97,15 +115,15 @@ horizontally. Shift+wheel also scrolls horizontally.
 The mouse wheel scrolls the current page anywhere in the window, including
 over dropdowns and number fields, without changing their values. Shift+wheel
 scrolls horizontally. Edits persist
-while switching slots and devices. The global toolbar **Apply** validates all edited
+while switching slots and devices. The top bar's **Apply** (shown while there are edits) validates all edited
 values, checks device identities, then commits all pending changes once per
 device. A failure on one device does not undo a previous device's commit;
-uncommitted edits remain pending. The global toolbar **Discard** reverts all pending edits to the
-last loaded or applied values without writing to devices. The top toolbar shows
-the loaded device count and pending changes. Discard updates existing controls
+uncommitted edits remain pending. Its **Discard** reverts all pending edits to the
+last loaded or applied values without writing to devices. The top bar also shows
+the pending changes. Discard updates existing controls
 from the cached values without reading devices or rebuilding pages. Default
 fills the value box with its firmware default and stages removal of the saved override; editing the box afterwards
-stages that new value instead. Closing asks before discarding edits.
+stages that new value instead. Back with edits asks Apply, Discard or Stay, as the web page does; closing asks before discarding them.
 Disconnected devices with pending edits remain in the tree until they reconnect or their edits are discarded.
 
 A `*` on a setting status button means it has a staged edit; clicking it discards

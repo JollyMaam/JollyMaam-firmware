@@ -89,6 +89,11 @@ def check(cc):
         for key in re.findall(r'(?:msg|text)\("(ui\.[^"]+)"', path.read_text()):
             if key not in source:
                 errors.append(f"{path.name}: missing English: {key}")
+    # padtool's GUI takes its words from the same catalog (padstrings.py).
+    for path in [*(ROOT / "tools/padtool").glob("*.py"), *(ROOT / "tools/padtool").glob("*.pyw")]:
+        for key in re.findall(r'\bT\(\s*"(ui\.[^"]+)"', path.read_text()):
+            if key not in source:
+                errors.append(f"{path.name}: missing English: {key}")
     for key in re.findall(r'data-i18n="([^"]+)"', (ROOT / "web/index.html").read_text()):
         if key not in source:
             errors.append(f"index.html: missing English: {key}")

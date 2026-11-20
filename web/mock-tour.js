@@ -5,7 +5,7 @@ export function tourSteps({ scenario, app, outcome, packageState = "present", wo
   const steps = [step("Home", "Start here. Next performs the next action; Play advances every three seconds.")];
   if (["install", "backup", "upgrade", "restore"].includes(workflow)) {
     const prefix = [step("Home", "Device discovery."), step("Devices", "Devices discovered.", "discovery"),
-      step("Manage Firmware", "Device selected.", "manage")];
+      step("Device", "Device selected: its page.", "manage")];
     if (["manual", "probe_error", "no_devices"].includes(scenario) || packageState !== "present") return prefix;
     prefix.push(step("Action", "Action options before starting.", "jobOpen"));
     if (answer === "cancel") return [...prefix, step("Confirmation", "The real confirmation text; the mock declines it.", "jobPrompt")];
@@ -14,7 +14,7 @@ export function tourSteps({ scenario, app, outcome, packageState = "present", wo
   }
   if (workflow === "package") {
     const prefix = app
-      ? [step("Home", "Devices."), step("Devices", "Devices discovered.", "discovery"), step("Package information", "Manage Firmware packages.", "manage")]
+      ? [step("Home", "Devices."), step("Devices", "Devices discovered.", "discovery"), step("Device", "A device page.", "manage")]
       : [step("Home", "Before connecting."), step("Connected", "Controller connected.", "connect"), step("Firmware", "Package information.", "firmware")];
     prefix.push(step("Package result", "The normal package reader handles the selected fixture.", "packageLoad"));
     return [...prefix, step("Package unloaded", "Return to the bundled package if available.", "packageUnload")];
@@ -35,8 +35,8 @@ export function tourSteps({ scenario, app, outcome, packageState = "present", wo
   }
   if (scenario === "unavailable") return [...steps, step("Unavailable APIs", "The normal connection choices explain the missing browser APIs.")];
   if (app && workflow !== "settings") {
-    steps.push(step("Devices", ["stock", "manual"].includes(scenario) ? "Home leaves stock firmware alone. Next opens Manage Firmware to find it." : "The app discovers simulated devices.", "discovery"),
-      step("Manage Firmware", "The selected device determines which actions are available.", "manage"));
+    steps.push(step("Devices", ["stock", "manual"].includes(scenario) ? "Stock pads are listed too. Next opens its device page." : "The app discovers simulated devices.", "discovery"),
+      step("Device", "The device determines which actions are available.", "manage"));
     if (["no_devices", "probe_error", "manual", "permission"].includes(scenario)) return steps;
     if (packageState !== "present") return [...steps, step("Package unavailable", "The package state disables firmware actions or explains the mismatch.")];
     steps.push(step("Backup", "The real backup action page, before starting the operation.", "backup"),

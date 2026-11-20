@@ -1,13 +1,16 @@
-import { ask, tell } from "./dialogs.js";
+import { ask, choose, tell } from "./dialogs.js";
 import { text as msg, fieldText } from "./i18n.js";
 // The page: connect to a pad over Bluetooth in config mode (Home+M held for
 // 3 s) or over USB (its tool device), show what it is and its settings, and
-// change them.  Screens: home (how to connect; in the Android app Manage
-// Firmware and the devices, flash.js), config (a pad on a link), and in the
-// Android app manage (Manage Firmware) and action (one of its actions);
-// Back (and the browser's or phone's back) goes back a screen.
+// change them.  Screens: home (Load Package and its contents; how to
+// connect, or in the Android app the devices, flash.js), package (what the
+// package has), device (a pad: what it is, and Configure, Install, Upgrade,
+// Backup, Restore), config (its settings) and action (one of its actions).
+// Back (and the browser's or phone's back) goes back a screen.  In a
+// browser the device page holds the link (its settings stay staged going
+// back and forth); in the app it is flash.js's, and Configure links.
 import { bluetooth, usb, android, mock } from "./environment.js";
-import { setupPads } from "./flash.js";
+import { setupPads, setIcon } from "./flash.js";
 import { Pad, TARGETS, T, PALETTE, PALETTE_TARGET, REMAP_TARGET, BASE_TARGET, MACROS_TARGET, SLOT_NAMES, kindOf, targetsFor,
   showValue, parseValue, editable, slotLabel, remapPart, macrosOf, remapOf } from "./pad.js";
 import { $, h, nameMenu } from "./dom.js";
@@ -30,7 +33,7 @@ let pad = null, poll = null, image = null, layout = null;
 const pads = android ? setupPads(android.flasher, android.bluetooth, {
   openSettings: (device) => connect(usb, device),
   openBle: (address) => connect(bluetooth, address),
-  enterManage: () => enter("manage"),
+  enterDevice: () => enter("device"),
   enterAction: () => enter("action"),
   upgradeBle,
 }) : null;
@@ -42,36 +45,53 @@ const linksOf = (link) => (link.kind === "hid" ? usb : bluetooth);
 
 let screen = "home", updating = false, leaving = false;
 
+const SCREENS = ["home", "package", "device", "config", "action"];
+let depth = 0;                   // screens above home in the history
+
 function show(name) {
-  for (const s of ["home", "config", "manage", "action"]) $(s).hidden = s !== name;
+  for (const s of SCREENS) $(s).hidden = s !== name;
   $("back").hidden = name === "home";
   document.querySelector("header h1").hidden = name !== "home";   // room for Back, Discard and Save
   screen = name;
+  bar();
   if (name === "home") pads?.home();
-  if (name === "manage") pads.manage();
+  if (name === "device") pads ? pads.device() : showDevice();
+  if (name === "package") showContents();
 }
 
 // A screen: one history entry each, so back goes back a screen.
 function enter(name) {
-  history.pushState({ screen: name }, "");
+  history.pushState({ screen: name, depth: ++depth }, "");
   show(name);
 }
 
-// Back a screen (Back, a pad gone), as the back key does.  force: nothing
-// left to ask about (the pad is gone).
+// Back a screen (Back), as the back key does.
+function back() {
+  if (screen !== "home") history.back();
+}
+
+// A pad gone: back to the device page in the app (its list goes on), home
+// in a browser (the link was the device page's); nothing left to ask about.
 function home(force = false) {
   if (screen === "home") return;
   leaving = force;
-  history.back();
+  if (pads && screen === "config") history.back();
+  else history.go(-depth);
 }
 
-// Leaving a screen: what it has running stops, unless it must not.
-function leave() {
+// Leaving a screen for another: what it has running stops, unless it must
+// not.  In a browser the link lives from the device page down.
+function leave(to) {
   const force = leaving;
   leaving = false;
   if (updating) return tell(msg("ui.app.wait_for_the_update_to_finish")), false;
-  if (screen === "manage" || screen === "action") return pads.leave() || (tell(msg("ui.app.wait_for_it_to_finish")), false);
-  if (!force && edits.size && !ask(msg("ui.app.discard_the_unsaved_changes"))) return false;
+  if (pads && (screen === "device" || screen === "action")) return pads.leave() || (tell(msg("ui.app.wait_for_it_to_finish")), false);
+  if (!pad && !edits.size) return true;
+  if (!pads && screen === "package") return true;
+  if (!pads && SCREENS.indexOf(to) >= SCREENS.indexOf("device")) {   // still this pad's; the edits go
+    if (edits.size) render();
+    return true;
+  }
   disconnect();
   return true;
 }
@@ -79,9 +99,28 @@ function leave() {
 addEventListener("popstate", (e) => {
   const to = e.state?.screen ?? "home";
   if (to === screen) return;
-  if (!leave()) return history.pushState({ screen }, "");
+  if (!leaving && !updating && edits.size) {          // stay until asked
+    history.pushState({ screen, depth }, "");
+    if (!asking) unsaved(e.state?.depth ?? 0);
+    return;
+  }
+  if (!leave(to)) return history.pushState({ screen, depth }, "");
+  depth = e.state?.depth ?? 0;
   show(to);
 });
+
+// Back with unsaved changes: save them, drop them, or stay (as padtool asks).
+let asking = false;
+async function unsaved(target) {
+  asking = true;
+  const choice = await choose(msg("ui.page.unsaved_changes"),
+    [["save", msg("ui.page.save")], ["discard", msg("ui.page.discard")], ["stay", msg("ui.page.stay")]]).finally(() => { asking = false; });
+  if (choice === "save") await save();
+  else if (choice !== "discard") return;
+  if (choice === "save" && edits.size) return;        // refused or failed: still here
+  leaving = true;
+  history.go(target - depth);
+}
 
 // A target as people read it: "Slot B (south)", "Remap base", "Palette".
 function targetName(t) {
@@ -354,7 +393,7 @@ function render() {
 
 function bar() {
   const n = edits.size, bad = [...edits.values()].filter((e) => e.error);
-  $("savebar").hidden = !n;
+  $("savebar").hidden = !n || screen !== "config";
   document.body.classList.toggle("unsaved", !!n);
   $("savecount").textContent = bad.length ? bad[0].error : `${n} change${n === 1 ? "" : "s"}`;
   $("savecount").classList.toggle("error", !!bad.length);
@@ -423,8 +462,9 @@ function dropLock() {
 // links: bluetooth or usb.  Over USB several programs share the pad (each
 // takes its own answers), so no lock.  device: the one to take (the
 // Android app's USB device name), else the user chooses.
-async function connect(links, device = null) {
-  pads?.leave();
+// to: the screen to open (the mock's controls go straight to the settings).
+async function connect(links, device = null, to = null) {
+  if (pads) pads.leave();
   disconnect();
   if (links === bluetooth && !(await takeLock())) {
     return problem(msg("ui.app.the_pad_settings_page_is_already_connected_in_another_tab_or_window_use_that_one") +
@@ -437,11 +477,15 @@ async function connect(links, device = null) {
     console.info(`link: choosing failed: ${error.name}: ${error.message}${error.step ? ` (at ${error.step})` : ""}`);
     if (error.name !== "NotFoundError") problem(String(error.message || error));
     dropLock();
-    if (screen === "home") pads?.home();   // watching USB again
+    if (screen === "device") pads?.device();   // watching USB again
     return;
   }
-  enter("config");
+  // The app's device page was flash.js's: its settings next.  A browser's
+  // is this link's.
+  enter(pads ? "config" : "device");
+  if (to === "config" && screen !== "config") enter("config");
   showIdentity(null, link);
+  showDevice();
   // Right after a disconnect a new link can come up and then fail its
   // first write ("GATT Error Unknown", Chrome on Linux) while BlueZ is
   // still ending the old one: then a fresh link, for up to 8 s.
@@ -482,8 +526,8 @@ async function attach(p) {
   try {
     const id = pad.id || await pad.identify();
     showIdentity(id, pad.link);
-    $("firmware").hidden = !!pads;   // the app: Manage Firmware
-    pickImage();
+    await pickImage();
+    showDevice();
     if (id.updater) return;      // the Mode row says so; Firmware update is what it takes
     layout = await p.layout().catch(() => null);
     const status = await p.status();
@@ -551,39 +595,53 @@ function disconnect() {
   edits.clear();
   bar();
   $("tests").hidden = true;
-  $("firmware").hidden = true;
+  image = null;
+  upgradeNote = "";
 }
 
 // ---- firmware update ----
 
 let pkg = null;
 
-// A firmware package for both the Firmware update fold and the flasher:
+// A firmware package for both the browser's Upgrade and the flasher:
 // the one that comes with the page (firmware.zip beside it: the Android
 // app has one), or one loaded from home (Load package) until unloaded.
-let bundled = null, loaded = null;
+let bundled = null, loaded = null, pkgName = null, pkgError = "";
 
 async function setPackage(name, bytes) {
   pkg = null;
+  pkgName = name;
+  pkgError = "";
   try {
     pkg = await openPackage(bytes);
-    $("pkginfo").textContent = `Package: ${name}`;
-    $("pkginfo").classList.remove("error");
   } catch (error) {
-    $("pkginfo").textContent = pads ? "" : `${name}: ${error.message || error}`;
-    $("pkginfo").classList.add("error");
+    pkgError = `${name}: ${error.message || error}`;
   }
-  pickImage();
+  await pickImage();
+  if (screen === "device" && !pads) showDevice();
+  if (screen === "package") showContents();
+  showLoaded();
   await pads?.setPackage(name, pkg ? bytes : null);
 }
 
 const BUNDLED = msg("ui.app.firmware_zip_bundled");
 
-// The home card: Load package, or Unload package while one is loaded.
+// The home card: Load Package, and which one is in use; its i button opens
+// the package page (contents, and Unload while one is loaded).
 function showLoaded() {
-  $("loadpkg").querySelector("strong").textContent = loaded ? msg("ui.app.unload_package") : msg("ui.app.load_package");
-  $("loadpkginfo").textContent = loaded ?? "";
-  $("fwload").textContent = loaded ? `Unload ${loaded}` : msg("ui.app.load_package_1");
+  $("loadpkginfo").textContent = pkg ? pkgName : pkgError || msg("ui.page.no_package_loaded");
+  $("loadpkginfo").classList.toggle("error", !pkg);
+  $("loadpkg").classList.toggle("missing", !pkg);      // red: nothing to install or upgrade with
+  $("pkginfo").disabled = !pkg;
+  $("pkginfo").classList.toggle("missing", !pkg);
+  $("pkgunload").hidden = !loaded;
+}
+
+// The package page: one line a file, as the manifest has them.
+function showContents() {
+  $("pkgname").textContent = pkg ? pkgName : pkgError || msg("ui.app.no_package");
+  $("pkgcontents").textContent = pkg ? pkg.files.map((f) =>
+    `${f.name.padEnd(10)} ${f.role.padEnd(8)} ${f.path.padEnd(28)} ${String(f.size).padStart(8)}  ${f.sha256}`).join("\n") : "";
 }
 
 async function loadPackage(file) {
@@ -604,9 +662,10 @@ async function unloadPackage() {
   if (bundled) await setPackage(BUNDLED, bundled);
   else {
     pkg = null;
-    $("pkginfo").textContent = "";
+    pkgName = null;
     await pads?.setPackage(null, null);
-    pickImage();
+    await pickImage();
+    if (screen === "package") showContents();
   }
   showLoaded();
 }
@@ -620,23 +679,36 @@ async function bundledPackage() {
   }
   try {
     const r = await fetch("firmware.zip");
-    if (!r.ok) return;
-    bundled = new Uint8Array(await r.arrayBuffer());
-    if (!loaded) await setPackage(BUNDLED, bundled);
+    if (r.ok) {
+      bundled = new Uint8Array(await r.arrayBuffer());
+      if (!loaded) await setPackage(BUNDLED, bundled);
+    }
   } catch { /* none: the user loads one */ }
   showLoaded();
 }
 
-function fwSay(text, error = false) {
-  $("fwinfo").textContent = text;
-  $("fwinfo").classList.toggle("error", error);
+// Why the browser's Upgrade is off, or what it would write.
+let upgradeNote = "";
+const fwSay = (text) => { upgradeNote = text; };
+
+// The browser's device page: the linked pad, what it can do here.
+function showDevice() {
+  if (pads) return;
+  const id = pad?.id;
+  $("devname").textContent = id ? id.boardName || id.product : pad ? msg("ui.app.connecting") : msg("ui.app.not_connected");
+  $("devstate").textContent = !id ? "" : `${id.updater ? msg("ui.app.updater") : `JollyMaam ${id.build}`} · ${pad.usb ? msg("ui.app.usb") : msg("ui.app.bluetooth")}`;
+  setIcon($("devicon"), pad?.usb ? "usb" : "ble");
+  $("devabout").textContent = id ? [id.product, pad.link.name].filter(Boolean).join(" · ") : "";
+  $("doconfigure").disabled = !id || id.updater;
+  $("doupgrade").disabled = !image;
+  for (const b of ["doinstall", "dobackup", "dorestore"]) $(b).disabled = true;
+  $("devnote").textContent = [image ? "" : upgradeNote, id ? msg("ui.app.install_backup_restore_elsewhere") : ""].filter(Boolean).join(" ");
 }
 
 // The connected pad's update.bin from the chosen package.
 async function pickImage() {
   image = null;
-  $("update").disabled = true;
-  if (!pkg || !pad?.id) return fwSay(pkg ? "" : `No firmware package: ${pads ? msg("ui.app.load_one_in_manage_firmware_load_package") : msg("ui.app.load_one_load_package")}.`);
+  if (!pkg || !pad?.id) return fwSay(pkg || !pad?.id ? "" : msg("ui.app.no_package_for_upgrade"));
   const file = findFile(pkg, pad.id.product, "update");
   if (!file) return fwSay(`The package has no update for this pad (${pad.id.product}).`, true);
   try {
@@ -645,14 +717,34 @@ async function pickImage() {
     if (wrong) return fwSay(wrong, true);
     image = data;
     fwSay(`${file.path}: ${data.length} bytes, SHA-256 ${file.sha256.slice(0, 12)}…`);
-    $("update").disabled = false;
   } catch (error) {
     fwSay(String(error.message || error), true);
   }
 }
 
 function fwLog(line) {
-  $("fwlog").textContent += line + "\n";
+  $("flashlog").textContent += line + "\n";
+}
+
+// The browser's Upgrade page: what it writes, and the button.
+function openUpgrade() {
+  if (!image) return;
+  $("actiontitle").textContent = msg("ui.page.upgrade");
+  $("actiondevice").textContent = `${$("devname").textContent} · ${$("devstate").textContent}`;
+  const go = h("button", { type: "button", id: "update" }, msg("ui.page.upgrade"));
+  go.addEventListener("click", update);
+  $("actionbody").replaceChildren(h("p", { id: "fwinfo", class: "muted" }, upgradeNote), h("div", { class: "actions" }, go));
+  $("actionresult").textContent = "";
+  $("actionresult").classList.remove("error");
+  $("padjob").hidden = true;
+  $("flashlog").textContent = "";
+  enter("action");
+}
+
+function result(text, error = false) {
+  $("actionresult").textContent = text;
+  $("actionresult").classList.toggle("error", error);
+  if (error) $("flashdetails").open = true;
 }
 
 async function update() {
@@ -663,25 +755,27 @@ async function update() {
   pad = null;
   updating = true;
   $("update").disabled = true;
-  $("fwlog").textContent = "";
-  $("fwprogress").hidden = false;
-  $("fwprogress").value = 0;
-  fwSay(msg("ui.app.updating_keep_this_page_open_and_the_pad_on"));
+  $("flashlog").textContent = "";
+  result("");
+  $("padjob").hidden = false;
+  $("padstep").textContent = msg("ui.app.updating_keep_this_page_open_and_the_pad_on");
+  $("flashprogress").value = 0;
   let up = null, written = false;
   try {
     up = await intoUpdater(p, linksOf(p.link), fwLog);
-    await sendImage(up, data, fwLog, (done, total) => { $("fwprogress").value = done / total; });
+    await sendImage(up, data, fwLog, (done, total) => { $("flashprogress").value = done / total; });
     written = true;
     const fresh = await finish(up, linksOf(up.link), fwLog);
-    $("fwprogress").hidden = true;
+    $("padjob").hidden = true;
     $("settings").replaceChildren();
     updating = false;
+    result(msg("ui.flash.upgraded_the_pad_starts_it"));
     await attach(fresh);
   } catch (error) {
     updating = false;
     fwLog(`${written ? msg("ui.app.not_found_again") : "failed"}: ${error.message || error}`);
-    $("fwprogress").hidden = true;
-    fwSay("");
+    $("padjob").hidden = true;
+    result(`${msg("ui.page.upgrade")}: ${error.message || error}`, true);
     if (written) problem(p.usb ? msg("ui.app.the_new_firmware_is_written_and_started_but_did_not_come_back_on_usb_go_back_and_connect_again")
       : msg("ui.app.the_new_firmware_is_written_and_started_but_did_not_come_back_in_config_mode") +
       msg("ui.app.an_older_updater_does_not_ask_for_it_go_back_hold_home_m_for_3_s_and_connect_again"));
@@ -691,7 +785,7 @@ async function update() {
   }
 }
 
-// Manage Firmware's Upgrade of a pad in config mode over Bluetooth (the
+// The device page's Upgrade of a pad in config mode over Bluetooth (the
 // app's): the package's update.bin for it, through its updater.
 async function upgradeBle(address, log, progress) {
   const p = new Pad(await bluetooth.choose(address));
@@ -728,8 +822,13 @@ async function runTest(test) {
 
 $("connect").addEventListener("click", () => connect(bluetooth));
 $("connectusb").addEventListener("click", () => connect(usb));
-$("managefw").addEventListener("click", () => enter("manage"));
-$("back").addEventListener("click", () => home());
+$("back").addEventListener("click", back);
+$("pkginfo").addEventListener("click", () => enter("package"));
+$("doconfigure").addEventListener("click", () => (pads ? pads.configure() : enter("config")));
+$("doinstall").addEventListener("click", () => pads?.install());
+$("dobackup").addEventListener("click", () => pads?.backup());
+$("dorestore").addEventListener("click", () => pads?.restore());
+$("doupgrade").addEventListener("click", () => (pads ? pads.upgrade() : openUpgrade()));
 $("writetest").addEventListener("click", () => runTest(async () => {
   testLog(`-- write sizes, ${new Date().toLocaleTimeString()}`);
   await writeTests(pad, testLog);
@@ -751,10 +850,9 @@ $("package").addEventListener("change", (e) => {
   e.target.value = "";
   if (file) loadPackage(file);
 });
-const loadOrUnload = () => (loaded ? unloadPackage() : $("package").click());
-$("loadpkg").addEventListener("click", loadOrUnload);
-$("fwload").addEventListener("click", loadOrUnload);
-$("update").addEventListener("click", update);
+$("loadpkg").addEventListener("click", () => $("package").click());
+$("pkgload").addEventListener("click", () => $("package").click());
+$("pkgunload").addEventListener("click", unloadPackage);
 $("save").addEventListener("click", save);
 $("undo").addEventListener("click", render);
 // What this browser or phone lacks: on the choice itself.
@@ -767,9 +865,9 @@ if (!bluetooth.available()) unavailable("connect", android ? msg("ui.app.this_ph
 if (!usb.available()) unavailable("connectusb", msg("ui.app.this_browser_has_no_webhid_use_chrome_or_edge"));
 // The app lists the devices itself (USB, and Bluetooth with its switch on);
 // a browser needs the user to choose a pad.
-for (const id of ["managefw", "homelist"]) $(id).hidden = !pads;
+$("homelist").hidden = !pads;
 for (const id of ["connect", "connectusb"]) $(id).hidden = !!pads;
 history.replaceState(null, "");    // a reload starts at home
 show("home");
 bundledPackage();
-mock?.controls({ usb: () => connect(usb), bluetooth: () => connect(bluetooth), save, loadPackage, unloadPackage, update });
+mock?.controls({ usb: () => connect(usb, null, "config"), bluetooth: () => connect(bluetooth, null, "config"), save, loadPackage, unloadPackage, update });

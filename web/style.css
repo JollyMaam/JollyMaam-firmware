@@ -234,6 +234,9 @@ svg.macrograph .label.end { text-anchor: end; }
 }
 
 /* Only the mock review harness creates these message surfaces. */
+#choosebox { max-width: min(420px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--line, #ccc); border-radius: 10px; background: var(--panel); color: inherit; }
+#choosebox p { margin: 0 0 16px; }
+#choosebox .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 #review-dialog { padding: 18px; margin-bottom: 16px; border: 2px solid var(--accent); border-radius: 8px; background: var(--panel); }
 #mock-notice { padding: 12px; border-left: 3px solid var(--error); color: var(--error); }
 
@@ -241,3 +244,24 @@ svg.macrograph .label.end { text-anchor: end; }
 .ble-permission-help { position: relative; }
 .ble-permission-help > summary { cursor: pointer; list-style: none; border: 1px solid var(--line); border-radius: 50%; width: 24px; text-align: center; }
 .ble-permission-help > p { position: absolute; right: 0; z-index: 2; width: max-content; max-width: 65vw; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+/* Home's package row: Load Package and its i (contents). */
+.pkgrow { display: flex; gap: 12px; margin: 8px 0; }
+.pkgrow #loadpkg { flex: 1; }
+button.choice.info { flex: none; width: 4.2em; align-items: center; justify-content: center; font-size: 20px;
+  font-weight: 700; color: var(--accent); font-family: Georgia, serif; font-style: italic; }
+#loadpkg.missing { border-color: var(--error); }
+button.choice #loadpkginfo.error { color: var(--error); }
+button.choice.info.missing { color: var(--error); border-color: var(--error); }
+/* The device page: what it is, then its actions as cards. */
+.blurb { display: flex; align-items: center; gap: 16px; padding: 16px 20px; margin: 8px 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.blurb h2 { margin: 0; }
+.blurb p { margin: 2px 0 0; }
+.blurb p.small { font-size: 13px; overflow-wrap: anywhere; }
+.blurb svg.transport { width: 32px; height: 32px; flex: none; fill: var(--accent); }
+#devabout:empty, #devnote:empty, #pkgname:empty { display: none; }
+#device .choices button.choice:disabled { opacity: .45; }
+pre.scroll { overflow-x: auto; white-space: pre; overflow-wrap: normal; padding: 12px 16px; margin: 8px 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; user-select: text; }
+pre.scroll:empty { display: none; }
+#action progress { width: 100%; }

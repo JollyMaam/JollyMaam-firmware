@@ -3,15 +3,14 @@ import { text as msg } from "./i18n.js";
 // Devices and firmware, in the Android app only (link-android.js:
 // libjollymaam over JNI, the app's Bluetooth scan).
 //
-// Devices: pads on USB and, while the Bluetooth switch is on, pads in config
-// mode.  Home lists ours on USB (our firmware, our updater, a boot loader:
-// never a controller in play) and opens one: our firmware its settings
-// (app.openSettings, app.openBle), the rest Manage Firmware.  Manage
-// Firmware lists every pad, stock ones too, to select one for Install,
-// Backup, Upgrade or Restore (an action page each), and loads or unloads
-// a package.  Install backs the whole flash up first unless told not to,
-// then writes our updater and firmware through the vendor boot loader, in
-// one loader session.
+// Home lists every pad on USB (ours, an updater, a boot loader, stock
+// firmware) and, while the Bluetooth switch is on, pads in config mode.
+// Tapping one opens its device page: what it is, and Configure, Install,
+// Upgrade, Backup and Restore, each enabled when the pad and the package
+// allow it.  Configure opens its settings (app.openSettings, app.openBle);
+// the rest open an action page.  Install backs the whole flash up first
+// unless told not to, then writes our updater and firmware through the
+// vendor boot loader, in one loader session.
 import { $, h, svg } from "./dom.js";
 
 const OURS = 0, BITDO = 1, JIELI = 2, STOCK = 3;
@@ -34,6 +33,10 @@ function icon(kind) {
   s.append(svg("path", { d: ICONS[kind] }));
   return s;
 }
+// The device page's icon (an svg with one path).
+export function setIcon(element, kind) {
+  element.querySelector("path").setAttribute("d", ICONS[kind]);
+}
 
 // What a device is, in a few words.
 function stateOf(dev) {
@@ -51,8 +54,8 @@ const nameOf = (dev) => dev.ble ? dev.ble.name : dev.id?.name || (dev.id?.kind =
 export function setupPads(flasher, bluetooth, app) {
   const bleKey = bluetooth.storageKey ?? BLE_KEY;
   let targets = null, timer = null, scanning = false, busy = false;
-  let where = "off";            // "home", "manage", "off"
-  let selected = null;          // Manage Firmware: the device's key
+  let where = "off";            // "home", "device", "off"
+  let selected = null;          // the device page's device: its key
   const ids = new Map();        // USB: what each device is (probed once while it stays)
   let usbFound = [];            // USB: [{key, d, id}]
   const bleFound = new Map();   // Bluetooth: key -> {key, ble: {name, id}, heard: ms}
@@ -94,7 +97,6 @@ export function setupPads(flasher, bluetooth, app) {
       scanning = false;
     }
     if (busy || where === "off") return;
-    if (where === "home") found = found.filter((d) => d.kind !== STOCK);
     for (const k of ids.keys()) if (!found.some((d) => d.device === k)) ids.delete(k);
     usbFound = found.map((d) => ({ key: d.device, d, id: ids.get(d.device) }));
     draw();
@@ -168,61 +170,76 @@ export function setupPads(flasher, bluetooth, app) {
   function draw() {
     if (where === "off") return;
     const all = devices();
-    if (where === "manage" && !all.some((x) => x.key === selected)) selected = all.length === 1 ? all[0].key : null;
-    const list = where === "manage" ? $("managedevices") : $("homedevices");
     const ble = bleOn && blePermission !== false;
     const key = JSON.stringify([where, selected, all.map((x) => [x.key, stateOf(x), nameOf(x), can(x).why]), !!targets, ble]);
     if (key === shown) return;
     shown = key;
+    if (where === "device") return page();
     const hint = ble && !bleFound.size ? msg("ui.flash.hold_home_m_for_3_s_to_show_a_pad_here_over_bluetooth") : "";
-    list.replaceChildren(...all.map((dev) => button([h("div", {}, h("strong", {}, nameOf(dev)), h("span", {}, stateOf(dev)), where === "manage" && can(dev).why ? h("span", { class: "device-package-status" }, can(dev).why) : null),
-      icon(dev.ble ? "ble" : "usb")], () => tap(dev), `choice device${dev.key === selected && where === "manage" ? " selected" : ""}`)),
-    ...(all.length ? [] : [h("p", { class: "muted" }, where === "manage" ? msg("ui.flash.plug_in_a_pad_over_usb") :
-      msg("ui.flash.a_pad_running_jollymaam_shows_up_here_when_it_is_plugged_in_over_usb"))]),
+    $("homedevices").replaceChildren(...all.map((dev) => button([h("div", {}, h("strong", {}, nameOf(dev)), h("span", {}, stateOf(dev))),
+      icon(dev.ble ? "ble" : "usb")], () => tap(dev), "choice device")),
+    ...(all.length ? [] : [h("p", { class: "muted" }, msg("ui.flash.plug_in_a_pad_over_usb"))]),
     ...(hint ? [h("p", { class: "muted" }, hint)] : []));
-    if (where === "manage") cards();
   }
 
   function tap(dev) {
-    if (where === "manage") {
-      selected = dev.key;
-      return draw();
-    }
-    if (dev.ble) return app.openBle(dev.ble.id);
-    if (!dev.id || dev.id.error) return;
-    if (dev.id.kind === OURS && !dev.id.updater) return app.openSettings(dev.d.device);
+    if (!dev.ble && !dev.id) return;          // still being asked what it is
     selected = dev.key;
-    app.enterManage();
+    app.enterDevice();
   }
 
-  // ---- Manage Firmware ----
+  // The device page: what the pad is, and what it can do.
+  function page() {
+    const dev = current();
+    const c = can(dev);
+    $("devname").textContent = dev ? nameOf(dev) : msg("ui.flash.device_gone");
+    $("devstate").textContent = dev ? stateOf(dev) : msg("ui.flash.device_gone_about");
+    setIcon($("devicon"), dev?.ble ? "ble" : "usb");
+    $("devicon").hidden = !dev;
+    $("devabout").textContent = dev ? about(dev) : "";
+    $("doconfigure").disabled = !c.configure;
+    $("doinstall").disabled = !c.install;
+    $("doupgrade").disabled = !c.upgrade;
+    $("dobackup").disabled = !c.backup;
+    $("dorestore").disabled = !c.restore;
+    $("devnote").textContent = c.why;
+  }
+
+  // A line about it: how it is connected, its product, what the package has for it.
+  function about(dev) {
+    if (dev.ble) return msg("ui.flash.about_ble");
+    const id = dev.id ?? {};
+    const parts = [msg("ui.flash.about_usb", { name: dev.d.name })];
+    if (id.product) parts.push(msg("ui.flash.about_product", { product: id.product }));
+    if (id.chip) parts.push(msg("ui.flash.about_chip", { chip: id.chip }));
+    if (targets) {
+      const fits = id.kind === JIELI ? targets.some((x) => x.chip === id.chip) : !!forProduct(id.product);
+      parts.push(fits ? msg("ui.flash.about_package_has_it") : msg("ui.flash.about_package_lacks_it"));
+    } else parts.push(msg("ui.flash.about_no_package"));
+    return parts.join(" · ");
+  }
+
+  // ---- the actions ----
 
   const forProduct = (p) => targets?.find((t) => t.product === p) ?? null;
 
   // What the selected device can do, and why not.
   function can(dev) {
-    const none = { install: false, backup: false, upgrade: false, restore: false, why: "" };
+    const none = { configure: false, install: false, backup: false, upgrade: false, restore: false, why: "" };
     if (!dev) return none;
-    if (dev.ble) return { ...none, upgrade: !!targets };
+    if (dev.ble) return { ...none, configure: true, upgrade: !!targets, why: targets ? "" : msg("ui.flash.no_package") };
     const id = dev.id;
-    if (!id || id.error) return none;
+    if (!id || id.error) return { ...none, why: id?.error ?? "" };
     const fits = id.kind === JIELI ? (targets ?? []).some((x) => x.chip === id.chip) : !!forProduct(id.product);
     const reachable = id.kind !== STOCK || id.canEnter;
     const flash = !!targets && reachable;
     return {
+      configure: id.kind === OURS && !id.updater,
       install: flash && fits, backup: flash, restore: flash,
       upgrade: id.kind === OURS && !!forProduct(id.product),
-      why: !targets ? "" : !reachable ? msg("ui.flash.manual_bootloader")
+      why: !targets ? msg("ui.flash.no_package") : !reachable ? msg("ui.flash.manual_bootloader")
         : !fits ? msg("ui.flash.package_missing_device", { device: id.product || id.chip }) : "",
     };
-  }
-
-  function cards() {
-    const c = can(current());
-    $("doinstall").disabled = !c.install;
-    $("dobackup").disabled = !c.backup;
-    $("doupgrade").disabled = !c.upgrade;
-    $("dorestore").disabled = !c.restore;
   }
 
   // An action page for the selected device.
@@ -245,7 +262,13 @@ export function setupPads(flasher, bluetooth, app) {
     return [h("label", { class: "check" }, box, ` ${label}`), box];
   };
 
-  $("doinstall").addEventListener("click", () => {
+  function configure() {
+    const dev = current();
+    if (!dev) return;
+    if (dev.ble) return app.openBle(dev.ble.id);
+    if (dev.id?.kind === OURS && !dev.id.updater) app.openSettings(dev.d.device);
+  }
+  function install() {
     const [backupRow, backup] = toggle(msg("ui.flash.back_up_first"), true);
     const dev = open(msg("ui.flash.install"), [h("p", {}, msg("ui.flash.this_wipes_all_settings_and_the_flash")), backupRow,
       h("div", { class: "actions" }, button(msg("ui.flash.install"), () => {
@@ -253,15 +276,15 @@ export function setupPads(flasher, bluetooth, app) {
           session(dev, msg("ui.flash.install"), { backup: backup.checked, action: ACTION.install }, msg("ui.flash.installed_the_pad_starts_jollymaam"));
         }
       }))]);
-  });
-  $("dobackup").addEventListener("click", () => {
+  }
+  function backup() {
     const dev = open(msg("ui.flash.backup"), [h("div", { class: "actions" }, button(msg("ui.flash.back_up"), () =>
       session(dev, msg("ui.flash.backup"), { backup: true, action: ACTION.none }, msg("ui.flash.backed_up_the_pad_is_in_its_boot_loader"))))]);
-  });
-  $("doupgrade").addEventListener("click", () => {
+  }
+  function startUpgrade() {
     const dev = open(msg("ui.flash.upgrade"), [h("div", { class: "actions" }, button(msg("ui.flash.upgrade"), () => upgrade(dev)))]);
-  });
-  $("dorestore").addEventListener("click", () => {
+  }
+  function restore() {
     // A backup of this pad or a vendor image (a raw write of a whole
     // backup is the command line's: jollymaam install --raw).
     const file = h("input", { type: "file", hidden: true });
@@ -272,7 +295,7 @@ export function setupPads(flasher, bluetooth, app) {
       if (!f || !ask(`Write ${f.name} to the pad?`)) return;
       session(dev, msg("ui.flash.restore"), { action: ACTION.restore, image: new Uint8Array(await f.arrayBuffer()) }, msg("ui.flash.restored_the_pad_starts_it"));
     });
-  });
+  }
 
   // ---- jobs ----
 
@@ -335,8 +358,9 @@ export function setupPads(flasher, bluetooth, app) {
 
   return {
     setPackage,
+    configure, install, backup, restore, upgrade: startUpgrade,
     home() { selected = null; watch("home"); },
-    manage() { watch("manage"); },
+    device() { watch("device"); },
     // Another screen; false while a job runs (stay).
     leave() {
       if (busy) return false;

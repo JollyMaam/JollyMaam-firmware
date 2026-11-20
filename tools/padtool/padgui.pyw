@@ -4,6 +4,8 @@ import contextlib
 import io
 from pathlib import Path
 import queue
+import re
+import subprocess
 import sys
 import threading
 import time
@@ -15,10 +17,13 @@ import pad8bitdo
 import padflash
 import padble
 import padhid
+import padpackage
 from padknown import PRODUCTS, command_mode, firmware_dir, product_name, stock_name
 from padtransport import usb_location
 from paddevices import DeviceMonitor, boot_record, load_targets, read_device, stock_records
 from padconsole import LiveConsole
+from padstrings import text as T
+import padstrings
 from padwidgets import PaletteEditor, CurveEditor, RemapEditor, Tooltip, use_layout, slot_label
 
 OURS = ("pad", "dongle")                 # boards running this firmware
@@ -37,6 +42,109 @@ class CalibrationView(ttk.Label):
             text = "Unreadable calibration. Run Calibrate sensors."
         if self.cget("text") != text:
             self.configure(text=text)
+
+
+def choose(parent, message, choices):
+    """One of choices ((value, label), ...), the first the default, the last
+    the safe one (Esc, closing the window): the web page's choose()."""
+    top = tk.Toplevel(parent)
+    top.title(T("ui.gui.title", "JollyMaam"))
+    top.transient(parent)
+    top.resizable(False, False)
+    safe = choices[-1][0]
+    answer = [safe]
+
+    def pick(value):
+        answer[0] = value
+        top.destroy()
+    frame = ttk.Frame(top, padding=16)
+    frame.pack(fill="both", expand=True)
+    ttk.Label(frame, text=message, wraplength=360, justify="left").pack(anchor="w", pady=(0, 14))
+    row = ttk.Frame(frame)
+    row.pack(anchor="e")
+    buttons = [ttk.Button(row, text=label, command=lambda v=value: pick(v)) for value, label in choices]
+    for button in buttons:
+        button.pack(side="left", padx=(8, 0))
+    top.bind("<Escape>", lambda e: pick(safe))
+    top.bind("<Return>", lambda e: e.widget.invoke() if isinstance(e.widget, ttk.Button) else None)
+    top.protocol("WM_DELETE_WINDOW", lambda: pick(safe))
+    buttons[0].focus_set()
+    top.update_idletasks()
+    try:
+        top.grab_set()           # modal; fails if the window is not up yet
+    except tk.TclError:
+        pass
+    top.wait_window()
+    return answer[0]
+
+
+class Card(tk.Frame):
+    """A card, as on the web page: a title, a line under it, and what a
+    click does (command; None: not clickable).  Off: greyed, no click."""
+    PANEL, LINE, ACCENT, FG, MUTED, OFF = "#ffffff", "#d6d4d0", "#2f6fd6", "#1c1b1a", "#6b6965", "#b0aeaa"
+    ERROR, ERROR_OFF = "#b3261e", "#dca09b"
+    alert = alert_title = False              # red: something is missing
+
+    def __init__(self, parent, title="", detail="", command=None, title_font=("TkDefaultFont", 12, "bold"), width=0):
+        super().__init__(parent, background=self.PANEL, highlightthickness=1, highlightbackground=self.LINE,
+                         highlightcolor=self.ACCENT, padx=14, pady=10, takefocus=1 if command else 0)
+        self.command, self.enabled = command, True
+        self.title = tk.Label(self, text=title, background=self.PANEL, font=title_font, anchor="w", justify="left")
+        # width 1: the card's width never follows its wrapped detail (that
+        # fed back through <Configure>), only its height does.
+        self.detail = tk.Label(self, text=detail, background=self.PANEL, foreground=self.MUTED, anchor="w",
+                               justify="left", width=1)
+        self.title.pack(fill="x")
+        if width:
+            self.title.configure(width=width)
+        self.detail.pack(fill="x", pady=(4, 0)) if detail else None
+        self.bind("<Configure>", lambda e: self.detail.configure(wraplength=max(60, e.width - 30)))
+        for widget in (self, self.title, self.detail):
+            widget.bind("<Button-1>", self.click)
+            widget.bind("<Enter>", lambda e: self.hover(True))
+            widget.bind("<Leave>", lambda e: self.hover(False))
+        self.bind("<Return>", self.click)
+        self.bind("<space>", self.click)
+        self.set_enabled(True)
+
+    def set(self, title=None, detail=None):
+        if title is not None:
+            self.title.configure(text=title)
+        if detail is not None:
+            self.detail.configure(text=detail)
+            if detail and not self.detail.winfo_manager():
+                self.detail.pack(fill="x", pady=(4, 0))
+            elif not detail:
+                self.detail.pack_forget()
+
+    def set_enabled(self, on):
+        self.enabled = bool(on)
+        clickable = self.enabled and self.command
+        if self.alert and self.alert_title:
+            self.title.configure(foreground=self.ERROR if self.enabled else self.ERROR_OFF)
+        else:
+            self.title.configure(foreground=(self.ACCENT if self.command else self.FG) if self.enabled else self.OFF)
+        self.detail.configure(foreground=self.ERROR if self.alert and self.enabled else self.MUTED if self.enabled else self.OFF)
+        self.hover(False)
+        for widget in (self, self.title, self.detail):
+            widget.configure(cursor="hand2" if clickable else "")
+
+    def set_alert(self, on, title_too=False):
+        """Red border and detail (title_too: its title as well), as the web
+        page's card for a missing package."""
+        self.alert, self.alert_title = bool(on), title_too
+        self.set_enabled(self.enabled)
+
+    def hover(self, inside):
+        if inside and self.enabled and self.command:
+            self.configure(highlightbackground=self.ACCENT)
+        else:
+            self.configure(highlightbackground=self.ERROR if self.alert else self.LINE)
+
+    def click(self, event=None):
+        if self.enabled and self.command:
+            self.command()
+        return "break"
 
 
 class App:
@@ -88,23 +196,100 @@ class App:
         self.notice.trace_add("write", lambda *_: self.update_summary())
         self.pending.trace_add("write", lambda *_: self.update_summary())
         self.update_summary()
-        top = ttk.Frame(root, padding=10)
-        top.pack(fill="x")
-        self.apply_all_button = ttk.Button(top, text="Apply", command=self.apply_settings, state="disabled")
-        self.discard_all_button = ttk.Button(top, text="Discard", command=self.discard_changes, state="disabled")
-        toolbar_buttons = [ttk.Button(top, text="Refresh", command=self.refresh_devices),
-                           self.apply_all_button, self.discard_all_button]
-        toolbar_status = ttk.Label(top, textvariable=self.summary)
-        def resize_toolbar(event):
-            columns = 4 if event.width >= 400 else 3 if event.width >= 300 else 2 if event.width >= 200 else 1
-            for index, button in enumerate(toolbar_buttons):
-                button.grid(row=index // columns, column=index % columns, sticky="w", padx=(0, 8))
-            wide = event.width >= 700
-            toolbar_status.configure(wraplength=max(80, min(750, event.width - (300 if wide else 20))))
-            toolbar_status.grid(row=0 if wide else (len(toolbar_buttons) + columns - 1) // columns,
-                                column=len(toolbar_buttons) if wide else 0, columnspan=1 if wide else columns, sticky="w")
-        top.bind("<Configure>", resize_toolbar)
-        pane = ttk.Panedwindow(root, orient="horizontal")
+        # Screens, as on the web page.  Home: Load Package (and its contents,
+        # i), the devices as cards.  A device's page: what it is, and
+        # Configure, Install, Upgrade, Backup, Restore, each on when the device
+        # and the package allow it.  From there its settings (the slots in a
+        # tree beside them), an action's progress, or the package's contents.
+        # Back goes back a screen.
+        self.package = padpackage.default()
+        self.configuring = None              # the device Configure opened
+        self.page_path = None                # the device page's device
+        self.screen = None
+        self.trail = []                      # the screens Back goes back to
+        self.views, self.view_pages = {}, {}
+        self.view_titles = {}
+        home = self.view("home", T("ui.gui.title", "JollyMaam"), back=False)
+        form = self.scroll_form(home, max_width=880)
+        self.view_pages["home"] = home
+        package_row = ttk.Frame(form)
+        package_row.pack(fill="x", pady=(0, 10))
+        package_row.columnconfigure(0, weight=1)
+        self.load_card = Card(package_row, T("ui.page.load_package_button", "Load Package"), " ", self.load_package)
+        self.load_card.grid(row=0, column=0, sticky="nsew")
+        self.info_card = Card(package_row, "i", command=lambda: self.go("package"),
+                              title_font=("Georgia", 16, "bold italic"), width=2)
+        self.info_card.title.configure(anchor="center")
+        self.info_card.grid(row=0, column=1, sticky="ns", padx=(10, 0))
+        Tooltip(self.info_card, lambda: T("ui.page.package_contents", "Package contents"))
+        tools = ttk.Frame(form)                 # the heading, its buttons beside it
+        tools.pack(fill="x", pady=(4, 8))
+        ttk.Label(tools, text=T("ui.page.devices", "Devices"), font=("TkDefaultFont", 12, "bold")).pack(side="left")
+        ttk.Button(tools, text=T("ui.gui.open_device_path", "Open device path…"), command=self.open_device_path).pack(side="right")
+        self.refresh_button = ttk.Button(tools, text=T("ui.gui.refresh_devices", "Refresh device list"), command=self.refresh_devices)
+        self.refresh_button.pack(side="right", padx=(0, 8))
+        # That we are looking, or that nothing is there: beside the heading.
+        self.tree_status = ttk.Label(tools, foreground="#666666")
+        self.tree_status.pack(side="left", padx=(12, 0))
+        self.device_cards = ttk.Frame(form)
+        self.device_cards.pack(fill="x")
+        self.cards = {}                      # path -> its card on home
+
+        device = self.view("device", "")
+        form = self.scroll_form(device, max_width=880)
+        self.view_pages["device"] = device
+        blurb = Card(form, title_font=("TkDefaultFont", 14, "bold"))
+        blurb.pack(fill="x", pady=(0, 10))
+        self.blurb = blurb
+        self.blurb_about = tk.Label(blurb, background=Card.PANEL, foreground=Card.MUTED, anchor="w", justify="left", width=1)
+        blurb.bind("<Configure>", lambda e: self.blurb_about.configure(wraplength=max(60, e.width - 30)), add="+")
+        grid = ttk.Frame(form)
+        grid.pack(fill="x")
+        self.action_buttons = {}
+        for name, command in (("Configure", self.configure_device), ("Install", self.install), ("Upgrade", self.upgrade),
+                              ("Backup", self.backup), ("Restore", self.restore)):
+            key = name.lower()
+            self.action_buttons[name] = Card(grid, T(f"ui.page.{key}", name), "", command)
+        self.action_note = ttk.Label(form, foreground="#666666", justify="left", wraplength=840)
+        self.action_note.pack(fill="x", pady=(10, 0))
+        self.button_columns = 0
+        def layout(width):
+            """The action cards two by two where they fit (each at least the
+            least a card takes), else one under another."""
+            columns = 2 if width >= 2 * 220 + 10 + 24 else 1
+            self.action_note.configure(wraplength=max(120, min(width, 880) - 48))   # inside the form's padding
+            if columns != self.button_columns:
+                self.button_columns = columns
+                grid.columnconfigure(0, weight=1, uniform="cards", minsize=220)
+                grid.columnconfigure(1, weight=1 if columns == 2 else 0, uniform="cards" if columns == 2 else "",
+                                     minsize=220 if columns == 2 else 0)
+                for i, card in enumerate(self.action_buttons.values()):
+                    card.grid(row=i // columns, column=i % columns, sticky="nsew",
+                              padx=(0, 10) if columns == 2 and i % 2 == 0 else 0, pady=(0, 10))
+        self.responsive_rows[device].append(layout)
+        self.layout_device = layout
+
+        package = self.view("package", T("ui.page.package_contents", "Package contents"))
+        body = ttk.Frame(package, padding=(16, 10))
+        body.pack(fill="both", expand=True)
+        self.package_name = ttk.Label(body, foreground="#666666", justify="left")
+        self.package_name.pack(anchor="w", pady=(0, 6))
+        ttk.Button(body, text=T("ui.page.load_package", "Load package…"), command=self.load_package).pack(side="bottom", anchor="w", pady=(8, 0))
+        self.package_text = self.text_box(body)
+
+        action = self.view("action", "")
+        self.action_page = ttk.Frame(action, padding=(16, 10))   # a running or finished action
+        self.action_page.pack(fill="both", expand=True)
+
+        self.config_view = self.view("config", "")
+        top = self.view_bars["config"]
+        self.config_title = self.view_titles["config"]
+        self.apply_all_button = ttk.Button(top, text=T("ui.page.apply", "Apply"), command=self.apply_settings, state="disabled")
+        self.discard_all_button = ttk.Button(top, text=T("ui.page.discard", "Discard"), command=self.discard_changes, state="disabled")
+        self.toolbar_status = ttk.Label(top, textvariable=self.summary, foreground="#666666")
+        self.toolbar_status.pack(side="right", padx=(8, 0))
+        root.bind("<Alt-Left>", lambda e: self.back())
+        pane = ttk.Panedwindow(self.config_view, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=10)
         self.pane_width = None
         def resize_navigation(event):
@@ -114,13 +299,6 @@ class App:
         pane.bind("<Configure>", resize_navigation)
         navigation = ttk.Frame(pane, width=250)
         pane.add(navigation, weight=0)
-        heading = ttk.Frame(navigation)
-        heading.pack(anchor="w", fill="x")
-        ttk.Label(heading, text="Devices and slots", padding=6).pack(side="left", anchor="n")
-        # That we are looking, or that nothing is there: beside the heading.
-        self.tree_status = ttk.Label(heading, padding=(0, 6, 6, 6), foreground="#666666", wraplength=150)
-        self.tree_status.pack(side="left", anchor="n")
-        ttk.Button(navigation, text="Open device path…", command=self.open_device_path).pack(side="bottom", fill="x", pady=6)
         self.tree = ttk.Treeview(navigation, show="tree", selectmode="browse", height=22)
         scrollbar = ttk.Scrollbar(navigation, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
@@ -150,8 +328,11 @@ class App:
         self.build_boot_page()
         self.build_dongle_page()
         self.build_stock_page()
+        self.build_action_page()
+        self.update_package()
         self.render_overview()
         self.show_page(self.overview)
+        self.show("home")
         self.render_tree()
         # Precede widget class bindings: wheels must never edit a value.
         self.wheel_tag = f"PadtoolWheel{id(self)}"
@@ -260,6 +441,9 @@ class App:
                 kind, data = self.events.get_nowait()
                 if kind == "log":
                     self.log(data)
+                    continue
+                if kind == "action_log":
+                    self.action_log(data)
                     continue
                 if kind == "refreshed":
                     self.looking = False
@@ -718,7 +902,7 @@ class App:
 
     def show_help(self, entry):
         field = entry["field"]
-        text = field["help"]
+        text = padstrings.field(field, "help", field["help"])
         if field["type"] == pad.T_ENTRY:
             text = ("Choose one of the 16 colours from the pad's palette. How bright it is lit is the "
                     "palette's: steady, animation and connecting brightness on the Palette page. "
@@ -729,13 +913,14 @@ class App:
                     "Outputs stay in increasing order; zero and full travel stay fixed.\n\n"
                     "Linear is no curve at all: calibrated input passes through exactly. Any other curve is used as drawn. Presets are shared with the CLI. "
                     "Apply at the top of this page saves this remap slot; the toolbar Apply saves all devices’ pending edits.")
-        messagebox.showinfo(field["name"].replace("_", " ").capitalize(), text or "No extra help is available.")
+        messagebox.showinfo(padstrings.field(field, "label", field["name"].replace("_", " ").capitalize()),
+                            text or "No extra help is available.")
 
     def dirty_count(self):
         return sum(self.changed(e) for r in self.cache.values() for e in r.get("draft", {}).values())
 
     def update_summary(self):
-        text = f"Loaded {sum(r.get('online', True) for r in self.cache.values())} device(s). {self.pending.get()}."
+        text = f"{self.pending.get()}."
         if self.notice.get():
             text += " " + self.notice.get()
         self.summary.set(text)
@@ -785,6 +970,11 @@ class App:
         state = "normal" if not self.busy and count else "disabled"
         self.apply_all_button.configure(state=state)
         self.discard_all_button.configure(state=state)
+        for button in (self.apply_all_button, self.discard_all_button):   # as the web page's save bar
+            if state == "normal" and not button.winfo_manager():
+                button.pack(side="right", padx=(8, 0), before=self.toolbar_status)
+            elif state != "normal":
+                button.pack_forget()
 
     def mark_dirty(self, force_previews=False):
         if self.batch_edits:
@@ -959,30 +1149,39 @@ class App:
         self.run("Opening device…", load, display)
 
     def update_tree_status(self):
-        """Above the device tree: that we are looking, or that nothing is there."""
-        text = "Looking…" if self.looking else "None found" if not self.cache else ""
+        """Beside the Devices heading: that we are looking (Refresh greyed
+        meanwhile), or that nothing is there."""
+        text = T("ui.gui.looking", "Looking…") if self.looking else T("ui.gui.none_found", "None found") if not self.cache else ""
         if not self.cache and not self.device.get():
             self.render_overview()
         self.tree_status.configure(text=text)
+        self.refresh_button.state(["disabled" if self.looking else "!disabled"])
 
     def render_tree(self, select_path=None):
         selected = self.tree.selection()
         previous = self.nodes.get(selected[0]) if selected else None
         self.tree.delete(*self.tree.get_children())
         self.nodes = {}
+        if self.configuring and self.configuring not in self.cache:
+            self.leave_config()
         for i, (path, record) in enumerate(self.cache.items()):
+            if self.configuring and path != self.configuring:
+                continue
             device_node = f"device{i}"
             port = record.get("location") or usb_location(path)
             location = f"USB {port} · " if port else "Bluetooth · " if padble.is_ble(path) else ""
             label = self.device_label(record)
             if not record.get("online", True):
                 label += " (disconnected)"
-            self.tree.insert("", "end", iid=device_node, text=f"{location}{label} · {record.get('original_path', path)}", open=True)
+            # Configuring: the device is the title above; its own page is
+            # Overview, beside its slots rather than above them.
+            self.tree.insert("", "end", iid=device_node, open=True, text="Overview" if self.configuring else
+                             f"{location}{label} · {record.get('original_path', path)}")
             self.nodes[device_node] = (path, None)
             targets = pad.targets(record["fields"]) if record["board"] == "pad" and record["fields"] is not None else []
             for t in targets:
                 node = f"{device_node}/{t}"
-                self.tree.insert(device_node, "end", iid=node, text=self.target_label(record, t))
+                self.tree.insert("" if self.configuring else device_node, "end", iid=node, text=self.target_label(record, t))
                 self.nodes[node] = (path, t)
         nodes = self.tree.get_children()
         if nodes:
@@ -997,6 +1196,7 @@ class App:
             self.update_loader_actions()
             self.show_page(self.overview)
         self.update_tree_status()
+        self.render_home()
         self.mark_dirty()
 
     @staticmethod
@@ -1020,6 +1220,9 @@ class App:
             return f"Slot {slot_label(record.get('layout'), pad.SLOT_NAMES[t])}"
         if t < pad.REMAP_TARGET:
             return pad.TARGETS[t].title()
+        if t >= pad.MACROS_TARGET:           # a remap slot's macros, then the base's
+            slot = t - pad.MACROS_TARGET
+            return "Macros base" if slot == 8 else f"Macros {slot_label(record.get('layout'), pad.SLOT_NAMES[slot])}"
         label = "Remap base" if t == pad.BASE_TARGET else f"Remap {slot_label(record.get('layout'), pad.SLOT_NAMES[t - pad.REMAP_TARGET])}"
         entry = record.get("draft", {}).get((t, "name"))
         name = entry["var"].get().strip() if entry else ""
@@ -1052,7 +1255,8 @@ class App:
             record["id_checked"] = True
             self.root.after_idle(self.detect_loader_product_id)
 
-    def scroll_form(self, parent):
+    def scroll_form(self, parent, max_width=None):
+        """A scrolling form in parent; max_width: no wider, centred."""
         frame = ttk.Frame(parent)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(0, weight=1)
@@ -1065,7 +1269,7 @@ class App:
         vertical.grid(row=0, column=1, sticky="ns")
         horizontal.grid(row=1, column=0, sticky="ew")
         horizontal.grid_remove()
-        form = ttk.Frame(canvas)
+        form = ttk.Frame(canvas, padding=(16, 12) if max_width else 0)
         window = canvas.create_window((0, 0), window=form, anchor="nw")
         self.responsive_rows[parent] = []
 
@@ -1082,8 +1286,10 @@ class App:
             wrap_labels(form, available)
             for layout in self.responsive_rows[parent]:
                 layout(available)
-            width = max(available, form.winfo_reqwidth())
-            if parent is self.settings:
+            width = max(min(available, max_width or available), form.winfo_reqwidth())
+            if max_width:
+                canvas.coords(window, max(0, (available - width) // 2), 0)
+            if parent is getattr(self, "settings", None):
                 width = max(width, self.details_header.winfo_reqwidth())
                 height = self.details_header.winfo_reqheight()
                 self.header_canvas.configure(height=height, scrollregion=(0, 0, width, height))
@@ -1097,14 +1303,14 @@ class App:
                 horizontal.grid_remove()
             bounds = canvas.bbox(window)
             if bounds:
-                canvas.configure(scrollregion=(0, 0, width, max(bounds[3], canvas.winfo_height())))
+                canvas.configure(scrollregion=(0, 0, max(width, available), max(bounds[3], canvas.winfo_height())))
 
         def resize(event):
             update_region()
 
         form.bind("<Configure>", update_region)
         canvas.bind("<Configure>", resize)
-        if parent is self.settings:
+        if parent is getattr(self, "settings", None):
             # Keep the title/actions fixed vertically, but scroll them with the
             # settings horizontally when a tiling window is forced too narrow.
             self.header_canvas.pack_configure(padx=(0, vertical.winfo_reqwidth()))
@@ -1162,7 +1368,8 @@ class App:
         else:
             steps = -1 if delta > 0 else 1 if delta < 0 else 0
         horizontal = bool(getattr(event, "state", 0) & 1)
-        target = event.widget if isinstance(event.widget, tk.Text) else self.scroll_canvases.get(self.active_page)
+        page = self.active_page if self.screen == "config" else self.view_pages.get(self.screen)
+        target = event.widget if isinstance(event.widget, tk.Text) else self.scroll_canvases.get(page)
         if target is not None:
             (target.xview_scroll if horizontal else target.yview_scroll)(steps, "units")
         return "break"
@@ -1362,7 +1569,8 @@ class App:
             elif in_box and shown == "mode":
                 ttk.Label(label, text="Analog mode").pack(side="left")
             else:
-                ttk.Label(label, text=shown.replace("_", " ").capitalize()).pack(side="left")
+                ttk.Label(label, text=padstrings.field(f, "label", shown.replace("_", " ").capitalize()) if not in_box
+                          else shown.replace("_", " ").capitalize()).pack(side="left")
             if in_box and shown == "maps_to":
                 names = f["names"]
                 view = tk.StringVar()
@@ -1441,7 +1649,7 @@ class App:
             button.configure(command=toggle_section)
             update_section()
 
-    def apply_settings(self, only=None, *, device_path=None, target=None):
+    def apply_settings(self, only=None, *, device_path=None, target=None, then=None):
         if self.busy:
             return
         jobs = []
@@ -1498,6 +1706,8 @@ class App:
         def finished(_):
             self.rerender_in_place()
             self.mark_dirty()
+            if then:
+                then()
         self.run("Applying settings…" if only or device_path else "Applying pending changes to all edited devices…", apply, finished)
 
     def rerender_in_place(self):
@@ -1742,9 +1952,11 @@ class App:
                    f"USB {record['location']}" if record.get("location") else "",
                    f"Reports itself as: {record['name']}" if record.get("name") else ""]
         self.stock_details.set("\n".join(d for d in details if d))
-        ready = bool(entry.usage_page) and record.get("online", True)
+        ready = bool(entry.usage_page) and record.get("online", True) and not record.get("closed")
         self.stock_enter_button.configure(state="normal" if ready else "disabled")
-        if entry.note:
+        if record.get("closed"):
+            text = record["closed"]
+        elif entry.note:
             text = entry.note
         elif entry.usage_page:
             text = "Enter flash loader restarts it into its ROM loader (UBOOT1.00), where it can be backed up or flashed. Reconnect USB to leave the loader."
@@ -1783,6 +1995,7 @@ class App:
         in_loader = record is not None and record["board"] == "loader" and record.get("online", True)
         for button in (self.backup_flash_button, self.flash_button):
             button.configure(state="normal" if in_loader else "disabled")
+        self.update_actions()
 
     def choose_firmware(self):
         if self.busy or not self.require_loader():
@@ -1981,6 +2194,412 @@ class App:
             loader.flash(data, backup)
         self.start_flash_progress("Preparing firmware")
         self.run("Backing up and flashing… keep USB connected" if backup else "Flashing… keep USB connected", write, lambda _: self.clear_settings(), exclusive=True)
+
+    # ---- Install, Backup, Upgrade, Restore (the web page's Manage) ----
+
+    # ---- screens ----
+
+    def view(self, name, title, back=True):
+        """A screen: its top bar (Back, its title) and below it the screen's
+        frame, returned."""
+        frame = ttk.Frame(self.root)
+        bar = ttk.Frame(frame, padding=(10, 8))
+        bar.pack(fill="x")
+        if back:
+            ttk.Button(bar, text="← " + T("ui.page.back", "Back"), command=self.back).pack(side="left", padx=(0, 10))
+        label = ttk.Label(bar, text=title, font=("TkDefaultFont", 13, "bold"))
+        label.pack(side="left")
+        ttk.Separator(frame).pack(fill="x")
+        self.views[name] = frame
+        self.view_titles[name] = label
+        self.view_bars = getattr(self, "view_bars", {})
+        self.view_bars[name] = bar
+        return frame
+
+    def text_box(self, parent):
+        """Text that keeps its lines whole, scrolling sideways, and can be
+        selected and copied."""
+        frame = ttk.Frame(parent)
+        frame.pack(fill="both", expand=True)
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+        output = tk.Text(frame, width=12, height=12, wrap="none", state="disabled")
+        down = ttk.Scrollbar(frame, orient="vertical", command=output.yview)
+        across = ttk.Scrollbar(frame, orient="horizontal", command=output.xview)
+        output.configure(yscrollcommand=down.set, xscrollcommand=across.set)
+        output.grid(row=0, column=0, sticky="nsew")
+        down.grid(row=0, column=1, sticky="ns")
+        across.grid(row=1, column=0, sticky="ew")
+        return output
+
+    def show(self, name):
+        for other, frame in self.views.items():
+            if other != name:
+                frame.pack_forget()
+        self.views[name].pack(fill="both", expand=True)
+        self.screen = name
+        if name == "device":
+            self.render_device()
+        elif name == "package":
+            self.render_package()
+
+    def go(self, name):
+        """Forward to a screen; Back comes back here."""
+        if self.screen != name:
+            self.trail.append(self.screen)
+            self.show(name)
+
+    def back(self):
+        if self.busy or not self.trail:
+            return
+        if self.screen == "config":
+            path = self.configuring
+            record = self.cache.get(path)
+            if record and any(self.changed(e) for e in record.get("draft", {}).values()):
+                answer = choose(self.root, T("ui.page.unsaved_changes", "You have unsaved changes."),
+                                [("apply", T("ui.page.apply", "Apply")), ("discard", T("ui.page.discard", "Discard")),
+                                 ("stay", T("ui.page.stay", "Stay"))])
+                if answer == "apply":    # Back again once saved, if still here
+                    return self.apply_settings(device_path=path, then=lambda: self.screen == "config" and
+                                               self.configuring == path and self.back())
+                if answer != "discard":
+                    return
+                self.discard_scope(path)
+            self.leave_config(show=False)
+        self.show(self.trail.pop())
+
+    def leave_config(self, show=True):
+        """Out of a device's settings (Back, or the device gone): the tree
+        lists every device again."""
+        self.configuring = None
+        if show and self.screen == "config":
+            self.show(self.trail.pop() if self.trail else "home")
+        self.render_tree(select_path=self.device.get() or None)
+
+    def build_action_page(self):
+        """An action's progress, result and output: the action screen."""
+        f = self.action_page
+        self.action_title = tk.StringVar()
+        self.action_device = tk.StringVar()
+        self.action_result = tk.StringVar()
+        self.action_title.trace_add("write", lambda *_: self.view_titles["action"].configure(text=self.action_title.get()))
+        device = ttk.Label(f, textvariable=self.action_device, foreground="#666666", justify="left")
+        device.pack(anchor="w", pady=(0, 8))
+        self.action_progress = ttk.Frame(f)
+        status = ttk.Label(self.action_progress, textvariable=self.flash_status, justify="left")
+        status.pack(anchor="w")
+        bar = ttk.Progressbar(self.action_progress, maximum=100, length=100)
+        bar.pack(fill="x", pady=(4, 8))
+        self.flash_bars.append(bar)
+        self.action_result_label = ttk.Label(f, textvariable=self.action_result, justify="left")
+        self.action_result.trace_add("write", lambda *_: self.action_result_label.pack(
+            anchor="w", pady=(0, 8), before=self.action_details) if self.action_result.get() else
+            self.action_result_label.pack_forget())
+        self.action_labels = [device, status, self.action_result_label]
+        f.bind("<Configure>", lambda e: [label.configure(wraplength=max(120, e.width - 8)) for label in self.action_labels])
+        self.action_details = ttk.Label(f, text=T("ui.page.details", "Details"))
+        self.action_details.pack(anchor="w")
+        self.action_output = self.text_box(f)
+
+    def action_log(self, text):
+        output = self.action_output
+        output.configure(state="normal")
+        output.insert("end", text.rstrip() + "\n")
+        output.see("end")
+        output.configure(state="disabled")
+
+    def load_package(self):
+        if self.busy:
+            return
+        file = filedialog.askopenfilename(title="Load a firmware package", filetypes=[("Firmware package", "*.zip"), ("All files", "*")])
+        if not file:
+            return
+        try:
+            self.package = padpackage.Package(file)
+        except (ValueError, OSError, padpackage.zipfile.BadZipFile) as error:
+            messagebox.showerror("Load Package", str(error))
+            return
+        self.update_package()
+
+    def update_package(self):
+        p = self.package
+        self.load_card.set(detail=str(p) if p else T("ui.page.no_package_loaded", "No package loaded: Install and Upgrade need one"))
+        self.load_card.set_alert(not p)          # red, and the i greyed red: nothing to show
+        self.info_card.set_alert(not p, title_too=True)
+        if self.screen == "package":
+            self.render_package()
+        self.update_actions()
+
+    def render_package(self):
+        """The package screen: one line a file, as its manifest has them."""
+        p = self.package
+        roles = {"install": "install image", "update": "update"}
+        self.package_name.configure(text=str(p.path) if p else T(
+            "ui.gui.no_package_about", "No package loaded: Load package takes a firmware.zip (from a release, or make firmware)."))
+        output = self.package_text
+        output.configure(state="normal")
+        output.delete("1.0", "end")
+        if p:
+            for (name, role), (file, size, digest) in sorted(p.files.items()):
+                what = f"{product_name(name)} ({name})" if role in roles else name
+                output.insert("end", f"{what}: {roles.get(role, role)}  {file}  {size} bytes  sha256 {digest}\n")
+        output.configure(state="disabled")
+
+    def can(self, record):
+        """What the selected device can do ({action: bool}), and why not: as
+        the web page has it."""
+        able = dict.fromkeys(("Install", "Backup", "Upgrade", "Restore"), False)
+        if not record:
+            return able, ""
+        if not record.get("online", True):
+            return able, "Disconnected."
+        if record.get("closed"):
+            return able, record["closed"]
+        if not self.package:
+            return able, "Load a package (firmware.zip) first: it has the firmware and the Jieli flash helpers."
+        pid, board = record.get("product_id"), record["board"]
+        if padble.is_ble(record["path"]):
+            able["Upgrade"] = board in OURS and self.package.has(pid, "update")
+            return able, "" if able["Upgrade"] else "Over Bluetooth only Upgrade, of a pad on this firmware; the rest needs USB."
+        if board == "stock" and not record["stock"].usage_page:
+            hint = PRODUCTS[pid].by_hand if pid in PRODUCTS else ""
+            mode = command_mode(pid)
+            return able, (f"This USB mode has no command for its boot loader: switch it to {mode} mode." if mode else
+                          f"It has no command for its boot loader; enter it by hand{': ' + hint if hint else ''}.")
+        fits = self.package.has(pid, "install") if pid else board == "loader"
+        able.update(Install=fits, Backup=True, Restore=True,
+                    Upgrade=board in OURS and self.package.has(pid, "update"))
+        return able, "" if fits else f"The package has no firmware for the {product_name(pid)}."
+
+    def page_record(self):
+        return self.cache.get(self.page_path) if self.page_path else None
+
+    def update_actions(self):
+        """The device page's action cards, as can() has them."""
+        record = None if self.busy else self.page_record()
+        able, why = self.can(record)
+        able["Configure"] = bool(record and record.get("online", True) and not record.get("closed"))
+        for name, card in self.action_buttons.items():
+            card.set_enabled(able[name])
+        self.load_card.set_enabled(not self.busy)
+        self.info_card.set_enabled(not self.busy and bool(self.package))
+        self.action_note.configure(text=why)
+
+    def render_home(self):
+        """Home's device cards, one a device: what it is, where."""
+        for path in [p for p in self.cards if p not in self.cache]:
+            self.cards.pop(path).destroy()
+        for path, record in self.cache.items():
+            card = self.cards.get(path)
+            if not card:
+                card = self.cards[path] = Card(self.device_cards, command=lambda path=path: self.open_device(path))
+                self.tag_wheel_tree(card)
+            card.set(self.device_label(record), self.where(record))
+            card.pack_forget()
+            card.pack(fill="x", pady=(0, 8))
+        if self.screen == "device":
+            self.render_device()
+
+    def where(self, record):
+        path = record["path"]
+        port = record.get("location") or usb_location(path)
+        where = f"USB {port}" if port else "Bluetooth" if padble.is_ble(path) else record.get("original_path", path)
+        return where + ("" if record.get("online", True) else " · " + T("ui.gui.disconnected", "disconnected"))
+
+    def open_device(self, path):
+        """A device card: the device's page, the device selected."""
+        if self.busy or path not in self.cache:
+            return
+        self.page_path = path
+        node = next((n for n, key in self.nodes.items() if key == (path, None)), None)
+        if node and path != self.device.get():
+            self.tree.selection_set(node)
+            self.select_node()
+        self.go("device")
+
+    def render_device(self):
+        """The device page: what it is, and what it can do."""
+        record = self.page_record()
+        if record:
+            pid = record.get("product_id")
+            about = [f"{product_name(pid)} ({pid})"] if pid else []
+            if self.package and pid:
+                about.append(T("ui.flash.about_package_has_it", "the package has firmware for it")
+                             if self.package.has(pid, "install") or self.package.has(pid, "update")
+                             else T("ui.flash.about_package_lacks_it", "the package has no firmware for it"))
+            self.blurb.set(self.device_label(record), self.where(record))
+            self.blurb_about.configure(text=" · ".join(about))
+            self.view_titles["device"].configure(text=self.device_label(record))
+        else:
+            self.blurb.set(T("ui.flash.device_gone", "Not here anymore"),
+                           T("ui.flash.device_gone_about", "It was unplugged, restarted or left config mode. Go back and choose it again."))
+            self.blurb_about.configure(text="")
+        if self.blurb_about.cget("text") and not self.blurb_about.winfo_manager():
+            self.blurb_about.pack(fill="x", pady=(2, 0))
+        elif not self.blurb_about.cget("text"):
+            self.blurb_about.pack_forget()
+        self.update_actions()
+
+    def configure_device(self):
+        """Configure: the device's settings, its slots in the tree."""
+        record = self.page_record()
+        if self.busy or not record or not record.get("online", True) or record.get("closed"):
+            return
+        self.configuring = record["path"]
+        self.config_title.configure(text=self.device_label(record))
+        self.go("config")
+        self.render_tree(select_path=record["path"])
+
+    def action_record(self, name):
+        """The device page's device, if it can do this now; pending edits first."""
+        record = self.page_record()
+        if self.busy or not self.can(record)[0][name]:
+            return None
+        if any(self.changed(entry) for entry in record.get("draft", {}).values()):
+            messagebox.showinfo("Pending edits", "Apply or discard this device’s pending edits first.")
+            return None
+        return record
+
+    @staticmethod
+    def device_args(record):
+        """The pad to jollymaam: its USB port (as jollymaam list shows it) on
+        Linux; elsewhere its product, which is enough with one of it
+        connected (jollymaam says so otherwise)."""
+        location = record.get("location") or usb_location(record["path"])
+        if location:
+            return ["--device", location]
+        return ["--product", record["product_id"]] if record.get("product_id") else []
+
+    def start_action(self, title, record):
+        self.action_title.set(title)
+        self.action_device.set(f"{self.device_label(record)} · {record.get('location') or record['path']}")
+        self.action_result.set("")
+        output = self.action_output
+        output.configure(state="normal")
+        output.delete("1.0", "end")
+        output.configure(state="disabled")
+        self.flash_active = True
+        self.flash_status.set("Starting…")
+        for bar in self.flash_bars:
+            bar.configure(mode="indeterminate", value=0)
+            bar.start()
+        self.show_action_page(progress=True, details=T("ui.page.details", "Details"))
+
+    def show_action_page(self, progress, details):
+        if progress:
+            self.action_progress.pack(fill="x", before=self.action_details)
+        else:
+            self.action_progress.pack_forget()
+        self.action_details.configure(text=details)
+        self.go("action")
+
+    def finish_action(self, text):
+        self.action_result.set(text)
+        self.update_actions()
+        self.refresh_devices()
+
+    def run_jollymaam(self, title, record, args, after):
+        """jollymaam ARGS on this device, its lines in Details, its steps on
+        the bar; after: what to say when it went well."""
+        exe = padpackage.jollymaam()
+        if not exe:
+            messagebox.showerror(title, "No jollymaam program: it comes in padtool's zip (padtool/bin), "
+                                        "or build it (make), or set JOLLYMAAM to it.")
+            return
+        command = [exe, *args, "--yes", "--package", str(self.package.path), *self.device_args(record)]
+        self.start_action(title, record)
+        self.action_log("$ " + subprocess.list2cmdline(command))
+        def work():
+            started = time.monotonic()
+            proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, encoding="utf-8", errors="replace",
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            last = ""
+            for line in proc.stdout:
+                line = line.rstrip()
+                if not line:
+                    continue
+                self.events.put(("action_log", line))
+                step = re.fullmatch(r"(.+) (\d+)%", line)
+                if step:
+                    self.flash_progress(step[1], int(step[2]), 100)
+                else:
+                    last = line
+            if proc.wait():
+                raise OSError(f"{title} failed: {last or f'jollymaam exit {proc.returncode}'}")
+            return time.monotonic() - started
+        self.run(title + "… keep USB connected", work, lambda took: self.finish_action(f"{after} ({took:.0f} s)"),
+                 exclusive=True, failed=lambda: self.finish_action(f"{title} failed: see Details."))
+
+    def ask_backup(self, title, record, default):
+        """Whether to back the whole flash up first, and where: the
+        jollymaam arguments, or None when cancelled."""
+        first = messagebox.askyesnocancel(title, "Back up the whole flash first?",
+                                          default=messagebox.YES if default else messagebox.NO)
+        if first is None:
+            return None
+        if not first:
+            return ["--no-backup"]
+        out = filedialog.asksaveasfilename(title="Save the backup", defaultextension=".bin",
+                                           initialfile=f"{record.get('product_id') or 'flash'}-{time.strftime('%Y%m%d-%H%M%S')}.bin")
+        return ["--backup", out] if out else None
+
+    def install(self):
+        record = self.action_record("Install")
+        if not record:
+            return
+        backup = self.ask_backup("Install", record, True)
+        if backup is not None and messagebox.askyesno(
+                "Install", f"Install JollyMaam on the {self.device_label(record)}?\n\n"
+                           "This wipes all settings and the flash (the factory data stays)."):
+            self.run_jollymaam("Install", record, ["install", *backup], "Installed; the pad starts JollyMaam.")
+
+    def backup(self):
+        record = self.action_record("Backup")
+        if not record:
+            return
+        out = filedialog.asksaveasfilename(title="Back up the whole flash", defaultextension=".bin",
+                                           initialfile=f"{record.get('product_id') or 'flash'}-{time.strftime('%Y%m%d-%H%M%S')}.bin")
+        if out:
+            self.run_jollymaam("Backup", record, ["backup", out], f"Backed up to {out}.")
+
+    def restore(self):
+        """A backup of this pad or a vendor image (raw or .ufw; an 8BitDo's
+        stock app), through jollymaam install FILE."""
+        record = self.action_record("Restore")
+        if not record:
+            return
+        file = filedialog.askopenfilename(title="Restore a backup or a vendor image",
+                                          filetypes=[("Backup or image", "*.bin *.ufw *.dat *.img"), ("All files", "*")])
+        if not file:
+            return
+        backup = self.ask_backup("Restore", record, False)
+        if backup is not None and messagebox.askyesno("Restore", f"Write {Path(file).name} to the {self.device_label(record)}?"):
+            self.run_jollymaam("Restore", record, ["install", *backup, file], "Restored; the pad starts it.")
+
+    def upgrade(self):
+        """Our firmware's app through our updater: settings and pairings stay.
+        USB: jollymaam update; Bluetooth: padtool's (config mode)."""
+        record = self.action_record("Upgrade")
+        if not record:
+            return
+        if not messagebox.askyesno("Upgrade", f"Upgrade the {self.device_label(record)} from {self.package}?\n\n"
+                                              "It restarts into its updater, takes the firmware and restarts; settings stay."):
+            return
+        if not padble.is_ble(record["path"]):
+            self.run_jollymaam("Upgrade", record, ["update"], "Upgraded; the pad starts it.")
+            return
+        image = self.package.read(record["product_id"], "update")
+        path = record["path"]
+        self.start_action("Upgrade", record)
+        def work():
+            started = time.monotonic()
+            if pad.cmd(path, 0, length=64)[:56] != record["identity"]:
+                raise ValueError("Device changed; wait for device detection before upgrading")
+            pad.update_device(path, image, lambda done, total: self.flash_progress("Upgrading", done, total))
+            return time.monotonic() - started
+        self.run("Upgrading…", work, lambda took: self.finish_action(f"Upgraded; the pad starts it ({took:.0f} s)."),
+                 exclusive=True, failed=lambda: self.finish_action("Upgrade failed: see the message."))
 
     def device_action(self, label, fn):
         path = self.path()

@@ -24,17 +24,21 @@ has neither Web Bluetooth nor WebHID).
   `android/app/src/main/java/dev/jollymaam/app/Bridge.kt`), and its
   flasher; `android` is null in a browser.
 - `flash.js`: in the app only (libjollymaam over JNI, the app's Bluetooth
-  scan): the Devices lists (USB, and Bluetooth with its switch on) and
-  Manage Firmware: install, back up, upgrade and restore, through the vendor
+  scan): the device list (USB, and Bluetooth with its switch on) and a
+  device's page: install, back up, upgrade and restore, through the vendor
   loaders a browser cannot reach (the Jieli ROM loader is USB mass storage).
 
-The page starts at home: a choice of link in a browser; in the app, Manage
-Firmware and the devices. Each screen is a history entry, so Back and the
-browser's back go back a screen. A
-`firmware.zip` next to the page (the app has one) is the firmware package
-until another is loaded (in the app Manage Firmware's **Load Package**, in a
-browser the pad's **Firmware update** fold; **Unload** goes back). The link
-tests (`linktest.js`) show only with `?dev` in the page's address.
+The page starts at home: **Load Package** and its **i** (the package's
+contents, and **Unload**), then in a browser a choice of link, in the app
+the devices. A device (the pad chosen in a browser, a device tapped in the
+app) has its page: what it is, and **Configure**, **Install**, **Upgrade**,
+**Backup** and **Restore**, each on when the device and the package allow it.
+In a browser only Configure and Upgrade (the updater over the link) work; the
+link stays up from the device page down, so Back from the settings keeps it.
+Each screen is a history entry, so Back and the browser's back go back a
+screen. A `firmware.zip` next to the page (the app has one) is the firmware
+package until another is loaded. The link tests (`linktest.js`) show only
+with `?dev` in the page's address.
 
 - `pad.js`: the Bluetooth framing (`src/profiles/profile_config.c`) and
   the tool commands (`src/core/usb.c`) over either link.
@@ -156,7 +160,7 @@ automatically.
 For example, the default settings tour walks through Home, Loading, Settings,
 Help, Invalid edit, Unsaved edit, Saving, Saved, and Disconnected. Failure and
 busy outcomes change the ending. App-view tours walk through discovery,
-Manage Firmware, the backup action, progress and its result. Package or device
+the device page, the backup action, progress and its result. Package or device
 restrictions instead stop at the state explaining why actions are unavailable.
 Unknown-setting and populated-remap scenarios also highlight their specific UI.
 
@@ -164,7 +168,7 @@ The toolbar selects a scenario, board, browser or Android app view, operation
 outcome, and firmware-package state. Selections are shareable URL parameters:
 
 - `?mock=populated`: saved settings, remap rules and inherited macros.
-- `?mock=normal&view=app`: device discovery and Manage Firmware in a browser.
+- `?mock=normal&view=app`: device discovery and the device page in a browser.
 - `?mock=normal&view=app&outcome=failure`: failed install, backup, upgrade or
   restore. In settings, saves are refused atomically.
 - `?mock=updater`: firmware update without settings; `no_app` shows an updater

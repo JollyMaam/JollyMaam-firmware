@@ -27,7 +27,7 @@ export const WORKFLOWS = [
     node("saved", "Saved", "saveFinish", {}, "success"), node("refused", "Change refused", "saveFinish", { outcome: "failure" }, "error"),
     node("temporary", "Saved temporarily", "saveFinish", { mock: "ephemeral" }, "success"),
     node("pairing", "Pairing will be cleared", "savePrompt", { workflow: "pairing", answer: "cancel" }, "confirmation"),
-    node("discard", "Discard unsaved changes?", "discardPrompt", { workflow: "discard", answer: "cancel" }, "confirmation"),
+    node("discard", "Unsaved changes on Back", "discardPrompt", { workflow: "discard", answer: "cancel" }, "confirmation"),
     node("disconnected", "Device disconnected", "disconnect"),
   ], [["ready","Edit","dirty"],["dirty","Invalid input","invalid"],["invalid","Correct value","dirty"],
     ["dirty","Save","saving"],["saving","Accepted","saved"],["saving","Refused","refused"],

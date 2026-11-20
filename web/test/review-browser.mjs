@@ -36,7 +36,7 @@ for(let i=0;i<cases.length;i++){
  let status='';for(let n=0;n<500;n++){status=await run('document.getElementById("status").textContent');if(!status.startsWith('Replaying'))break;await new Promise(r=>setTimeout(r,25));}
  if(!status.startsWith('Checkpoint ready')){failed.push({...c,...result,status});console.log('FAIL',failed.at(-1));}
  if(i%20===0)console.log('Reached',i+1,'/',cases.length,result.id,c.platform,c.operation);
- if(result.id==='settings.ready')assert.equal(await run('document.getElementById("preview").contentDocument.getElementById("firmware").hidden'),c.platform==='android');
+ if(result.id==='settings.ready')assert.equal(await run('document.getElementById("preview").contentDocument.getElementById("config").hidden'),false);
  if(result.id.startsWith('firmware.')){
   assert.equal(await run('!!document.querySelector(`#workflows [data-flow="update"]`)'),false);
   if(c.operation==='upgrade')assert.equal(await run('document.getElementById("map").textContent.includes("Manual boot loader")'),false);

@@ -80,7 +80,8 @@ STOCK = [
 
 # Products with no ROM loader of this kind, by name only (the 8BitDo's boot
 # loader: pad8bitdo).
-NAMES = {"U2C_WIRELESS": "Ultimate 2C Wireless", "U2C_RECEIVER": "Ultimate 2C receiver"}
+NAMES = {"U2C_WIRELESS": "Ultimate 2C Wireless", "U2C_RECEIVER": "Ultimate 2C receiver",
+         "U2C_BLUETOOTH": "Ultimate 2C Bluetooth"}
 
 
 def product_name(pid):

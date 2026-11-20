@@ -39,19 +39,19 @@ it, and **Load package** on the home screen swaps in another until unloaded. `ma
 ## Use
 
 1. Open the app.
-2. Home: **Manage Firmware**, then **Devices**: our pads on USB (plugging
-   one in also offers the app) and, with the **Bluetooth** switch on, pads
-   in config mode (hold Home+M for 3 s). Tap one running JollyMaam for its
-   settings; one in its boot loader or updater opens Manage Firmware.
-3. **Manage Firmware**: Install, Backup, Upgrade, Restore and Load/Unload
-   Package, then the devices, stock pads too: tap one to select it. Install
-   wipes all settings and the flash (**Back up first**, on by default, saves
-   the whole flash into Download/JollyMaam). Restore takes a backup of that
-   pad or a vendor image. Over Bluetooth only Upgrade applies. A stock mode
-   the app cannot restart into its loader says what to do by hand.
+2. Home: **Load Package** (**i** lists the package's contents, and
+   unloads a loaded one), then **Devices**: every pad on USB, stock ones
+   too (plugging one in also offers the app), and, with the **Bluetooth**
+   switch on, pads in config mode (hold Home+M for 3 s).
+3. Tap a device for its page: what it is, and **Configure**, **Install**,
+   **Upgrade**, **Backup** and **Restore**, each on when the pad and the
+   package allow it (the reason shows underneath). Install wipes all
+   settings and the flash (**Back up first**, on by default, saves the whole
+   flash into Download/JollyMaam). Restore takes a backup of that pad or a
+   vendor image. Over Bluetooth only Configure and Upgrade apply. A stock
+   mode the app cannot restart into its loader says what to do by hand.
 
-Home leaves a pad on stock firmware alone (a controller profile, maybe
-plugged in to play); Manage Firmware lists it. Back goes back a screen.
+Back goes back a screen.
 
 After a restart into the updater the pad is a new USB device: Android may ask
 for USB access again.

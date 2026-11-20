@@ -24,6 +24,7 @@ import padknown
 
 # No test may reach a real HID device.
 padhid.devices = lambda: []
+padhid.closed = lambda: []
 padhid.write = lambda path, data: None
 
 
@@ -180,6 +181,190 @@ class GuiCase(unittest.TestCase):
 
 
 
+class ActionTests(GuiCase):
+    """Home's device cards open a device's page: Configure, Install, Upgrade,
+    Backup, Restore (jollymaam on that device)."""
+    class Package:
+        path = Path("/pkg/firmware.zip")
+        products = ["GS_C2_ADC_DEVICE"]
+        def has(self, pid, role):
+            return pid == "GS_C2_ADC_DEVICE"
+        def read(self, pid, role):
+            return b"MAIN"
+        def __str__(self):
+            return "firmware.zip"
+
+    def pad(self, **extra):
+        r = record()
+        r.update({"product_id": "GS_C2_ADC_DEVICE", "location": "5-2.1", **extra})
+        return r
+
+    def states(self):
+        return {n: "normal" if b.enabled else "disabled" for n, b in self.app.action_buttons.items() if n != "Configure"}
+
+    def open(self, path=None):
+        self.app.open_device(path or next(iter(self.app.cache)))
+        self.root.update()
+
+    def test_buttons_follow_the_device_and_the_package(self):
+        self.app.package = None
+        self.app.update_package()
+        self.load([self.pad()])
+        self.open()
+        self.assertEqual(self.app.screen, "device")
+        self.assertEqual(set(self.states().values()), {"disabled"})
+        self.assertIn("Load a package", self.app.action_note.cget("text"))
+        self.app.package = self.Package()
+        self.app.update_package()
+        self.assertEqual(set(self.states().values()), {"normal"})
+        other = self.pad(product_id="AC695X_TRANS")
+        self.app.cache.clear()
+        self.load([other])
+        self.open()
+        self.assertEqual(self.states(), {"Install": "disabled", "Backup": "normal", "Upgrade": "disabled", "Restore": "normal"})
+
+    def test_install_runs_jollymaam_on_the_selected_port(self):
+        self.app.package = self.Package()
+        self.load([self.pad()])
+        class Proc:
+            returncode = 0
+            stdout = iter(["Backing up 25%\n", "Writing firmware 100%\n", "installed\n"])
+            def wait(self):
+                return 0
+        self.open()
+        with patch.object(padgui.padpackage, "jollymaam", return_value="/bin/jollymaam"), \
+             patch.object(padgui.subprocess, "Popen", return_value=Proc()) as popen, \
+             patch.object(padgui.messagebox, "askyesnocancel", return_value=False), \
+             patch.object(padgui.messagebox, "askyesno", return_value=True), \
+             patch.object(self.app, "refresh_devices"):
+            self.app.install()
+            self.finish()
+        self.assertEqual(popen.call_args.args[0], ["/bin/jollymaam", "install", "--no-backup", "--yes", "--package",
+                                                    str(Path("/pkg/firmware.zip")), "--device", "5-2.1"])
+        self.assertIn("Installed", self.app.action_result.get())
+        self.assertEqual(self.app.screen, "action")
+        self.assertIn("installed", self.app.action_output.get("1.0", "end"))
+
+    def test_a_failing_jollymaam_says_so(self):
+        self.app.package = self.Package()
+        self.load([self.pad()])
+        class Proc:
+            returncode = 1
+            stdout = iter(["not my pad\n"])
+            def wait(self):
+                return 1
+        self.open()
+        with patch.object(padgui.padpackage, "jollymaam", return_value="/bin/jollymaam"), \
+             patch.object(padgui.subprocess, "Popen", return_value=Proc()), \
+             patch.object(padgui.filedialog, "asksaveasfilename", return_value="/tmp/out.bin"), \
+             patch.object(padgui.messagebox, "showerror") as error, \
+             patch.object(self.app, "refresh_devices"):
+            self.app.backup()
+            self.finish()
+        self.assertIn("not my pad", error.call_args.args[1])
+        self.assertIn("failed", self.app.action_result.get())
+
+    def test_configure_opens_the_device_and_back_returns_home(self):
+        one, two = self.pad(), record("other")
+        self.load([one, two])
+        self.assertEqual(set(self.app.cards), {one["path"], "other"})
+        self.app.cards["other"].click()
+        self.root.update()
+        self.assertEqual((self.app.screen, self.app.device.get()), ("device", "other"))
+        self.assertTrue(self.app.action_buttons["Configure"].enabled)
+        self.app.action_buttons["Configure"].click()
+        self.root.update()
+        self.assertEqual(self.app.screen, "config")
+        self.assertEqual(self.app.config_view.winfo_manager(), "pack")
+        self.assertEqual({self.app.nodes[n][0] for n in self.app.tree.get_children()}, {"other"})
+        self.assertEqual(self.app.tree.item(self.app.tree.get_children()[0], "text"), "Overview")
+        self.app.back()
+        self.root.update()
+        self.assertEqual(self.app.screen, "device")
+        self.assertEqual(self.app.config_view.winfo_manager(), "")
+        self.assertEqual(len(self.app.tree.get_children()), 2)
+        self.app.back()
+        self.assertEqual(self.app.screen, "home")
+        self.app.back()                      # nothing behind home
+        self.assertEqual(self.app.screen, "home")
+
+    def test_back_with_unsaved_changes_asks_apply_discard_or_stay(self):
+        one = record("other")
+        self.load([one])
+        self.app.open_device("other")
+        self.app.configure_device()
+        one["draft"][0, "rumble"]["var"].set("60")
+        with patch.object(padgui, "choose", return_value="stay") as ask:
+            self.app.back()
+        self.assertIn("unsaved", ask.call_args.args[1])
+        self.assertEqual([c[0] for c in ask.call_args.args[2]], ["apply", "discard", "stay"])
+        self.assertEqual((self.app.screen, self.app.dirty_count()), ("config", 1))
+        with patch.object(padgui, "choose", return_value="apply"), \
+             patch.object(self.app, "apply_settings") as apply:
+            self.app.back()
+        self.assertEqual(apply.call_args.kwargs["device_path"], "other")
+        self.assertEqual(self.app.screen, "config")
+        with patch.object(padgui, "choose", return_value="discard"):
+            self.app.back()
+        self.assertEqual((self.app.screen, self.app.dirty_count()), ("device", 0))
+
+    def test_a_gone_device_greys_its_page(self):
+        self.app.package = self.Package()
+        self.load([self.pad()])
+        self.open()
+        self.app.cache.clear()
+        self.app.render_tree()
+        self.root.update()
+        self.assertEqual(self.app.cards, {})
+        self.assertEqual(set(self.states().values()), {"disabled"})
+        self.assertFalse(self.app.action_buttons["Configure"].enabled)
+        self.assertEqual(self.app.blurb.title.cget("text"), padgui.T("ui.flash.device_gone"))
+
+    def test_no_package_shows_red_and_greys_the_i(self):
+        self.app.package = None
+        self.app.update_package()
+        self.assertTrue(self.app.load_card.alert)
+        self.assertEqual(self.app.load_card.cget("highlightbackground"), padgui.Card.ERROR)
+        self.assertIn("No package loaded", self.app.load_card.detail.cget("text"))
+        self.assertFalse(self.app.info_card.enabled)
+        self.app.info_card.click()
+        self.assertEqual(self.app.screen, "home")
+        self.app.package = self.Package()
+        self.app.update_package()
+        self.assertFalse(self.app.load_card.alert)
+        self.assertTrue(self.app.info_card.enabled)
+
+    def test_the_package_screen_lists_its_files(self):
+        class Package(self.Package):
+            files = {("GS_C2_ADC_DEVICE", "install"): ("c2/pad/install.bin", 3, "ab" * 32)}
+        self.app.package = Package()
+        self.app.update_package()
+        self.assertEqual(self.app.load_card.detail.cget("text"), "firmware.zip")
+        self.app.info_card.click()
+        self.assertEqual(self.app.screen, "package")
+        self.assertIn("c2/pad/install.bin  3 bytes", self.app.package_text.get("1.0", "end"))
+        self.app.back()
+        self.assertEqual(self.app.screen, "home")
+
+    def test_a_stock_pad_we_may_not_open_says_why(self):
+        hid = {"path": "/dev/hidraw9", "open": False, "vid": 0x3537, "product": 0x1053, "bcd": 0x0352,
+               "manufacturer": "", "product_name": "Xbox 360 Controller for Windows", "location": "5-2.1",
+               "descriptor": bytes([0x06, 0xf0, 0xff])}
+        with patch.object(padgui.padhid, "closed", return_value=[hid]):
+            records = padgui.stock_records([])
+        self.assertEqual(len(records), 1)
+        self.app.package = self.Package()
+        self.load(records)
+        self.open()
+        self.assertEqual(set(self.states().values()), {"disabled"})
+        self.assertIn("No access to /dev/hidraw9", self.app.action_note.cget("text"))
+
+    def test_macro_targets_have_labels(self):
+        r = self.pad()
+        self.assertEqual(self.app.target_label(r, padgui.pad.MACROS_TARGET), "Macros " + padgui.slot_label(None, "south"))
+        self.assertEqual(self.app.target_label(r, padgui.pad.MACROS_TARGET + 8), "Macros base")
+
+
 class GuiTests(GuiCase):
     def test_startup_scans_without_a_click(self):
         self.app.close()
@@ -255,6 +440,8 @@ class GuiTests(GuiCase):
 
     def test_wheel_over_inputs_scrolls_without_editing(self):
         self.load([record()])
+        self.app.open_device(next(iter(self.app.cache)))
+        self.app.configure_device()
         self.root.deiconify()
         self.app.show_target(0)
         self.root.update()
@@ -291,7 +478,7 @@ class GuiTests(GuiCase):
         one, two = record(), record("other")
         one["values"][2]["rumble"] = (b"\x64", True)
         self.load([one, two])
-        self.assertEqual(self.app.summary.get(), "Loaded 2 device(s). No pending changes.")
+        self.assertEqual(self.app.summary.get(), "No pending changes.")
         self.assertTrue(self.app.apply_all_button.instate(["disabled"]))
         one["draft"][0, "rumble"]["var"].set("invalid")
         two["draft"][1, "radio_type"]["var"].set("hid")
@@ -318,7 +505,7 @@ class GuiTests(GuiCase):
         self.assertFalse(one["draft"][2, "rumble"]["reset"].get())
         self.assertEqual(self.app.dirty_count(), 0)
         self.assertTrue(self.app.apply_all_button.instate(["disabled"]))
-        self.assertEqual(self.app.summary.get(), "Loaded 2 device(s). No pending changes.")
+        self.assertEqual(self.app.summary.get(), "No pending changes.")
 
     def test_setting_default_and_slot_discard_keep_unrelated_drafts(self):
         r = record()
@@ -607,6 +794,8 @@ class GuiTests(GuiCase):
 
     def test_narrow_window_wraps_controls_and_scrolls_horizontally(self):
         self.load([record()])
+        self.app.open_device(next(iter(self.app.cache)))
+        self.app.configure_device()
         self.root.deiconify()
         self.root.geometry("440x360")
         self.root.update()
@@ -655,7 +844,7 @@ class GuiTests(GuiCase):
         self.app.update_devices((0, {}, [], []))
         self.assertFalse(self.app.record()["online"])
         self.assertEqual(self.app.dirty_count(), 1)
-        self.assertIn("Loaded 0 device(s)", self.app.summary.get())
+        self.assertIn("1 pending change(s)", self.app.summary.get())
         new = record("renumbered")
         new["identity"] = one["identity"]
         self.app.update_devices((0, {new["path"]: new["identity"]}, [new], []))
@@ -789,7 +978,7 @@ class GuiTests(GuiCase):
         self.assertTrue(self.app.changed(two["draft"][0, "rumble"]))
 
     def test_refresh_button_rescans_and_nothing_polls(self):
-        buttons = [w for w in self.app.controls(self.app.root) if isinstance(w, padgui.ttk.Button) and w.cget("text") == "Refresh"]
+        buttons = [w for w in self.app.controls(self.app.root) if isinstance(w, padgui.ttk.Button) and w.cget("text") == "Refresh device list"]
         self.assertEqual(len(buttons), 1)
         one = record()
         with patch.object(padgui.pad, "discover_devices", return_value=[(one["path"], one["name"], one["identity"])]), \
@@ -797,6 +986,7 @@ class GuiTests(GuiCase):
              patch.object(self.app.monitor, "scan_bluetooth"):
             buttons[0].invoke()
             self.assertEqual(self.app.tree_status.cget("text"), "Looking…")
+            self.assertTrue(buttons[0].instate(["disabled"]))
             self.assertNotIn("Looking", self.app.summary.get())
             for _ in range(200):
                 self.root.update()
@@ -805,6 +995,7 @@ class GuiTests(GuiCase):
                 time.sleep(0.01)
         self.assertIn(one["path"], self.app.cache)
         self.assertEqual(self.app.tree_status.cget("text"), "")
+        self.assertFalse(buttons[0].instate(["disabled"]))
 
     def test_device_tree_says_while_looking_and_when_empty(self):
         self.assertIn("None found", self.app.tree_status.cget("text"))
@@ -814,6 +1005,7 @@ class GuiTests(GuiCase):
             self.assertNotIn("Scanning", self.app.summary.get())
             self.finish()
         self.assertIn("None found", self.app.tree_status.cget("text"))
+        self.assertFalse(self.app.refresh_button.instate(["disabled"]))
         self.load([record()])
         self.app.render_tree()
         self.assertEqual(self.app.tree_status.cget("text"), "")
