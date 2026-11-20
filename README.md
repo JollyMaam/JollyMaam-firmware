@@ -1,45 +1,46 @@
-This is an open source gamepad firmware.
+# JollyMaam: open source gamepad firmware
 
-It supports the following products:
-  - Gamesir Cyclone 2 (TODO: add link to gamesir page that details on how to install)
-  - Gamesir Nova 2 Lite (TODO: same)
-  - 8BitDo Ultimate 2C Wireless (TODO: add 8bitdo link on how to install)
+|Supported Devices|
+|--|
+|Gamesir Cyclone 2|
+|Gamesir Nova 2 Lite|
+|8BitDo Ultimate 2C Wireless|
+|8BitDo Ultimate 2C Bluetooth|BLE only|
 
-Q: Did a human write this README? Yes.
-
-Q: Did I vibe code this project? Yes. (TODO: add HUMANS.md for my philosophy/blog about developing this stuff with AI)
-
-Q: Did I expect to vibe code this when starting out? No.
-
-Q: Why did you create this? The Cyclone 2 has a bunch of user experience features that annoyed me. Kids and guests would somehow keep entering turbo mode on accident. It only supported one possible configuration of profiles. I like open source. My keyboard runs QMK, my gamepad should run an open source firmware too!
-
-Q: Who are you? A linux geek and professional embedded linux engineer for 10+ years.
+|Question|Answer|
+|--|--|
+|Did a human write this README?|Yes.|
+|Is it vibe-coded?|Yes.|
+|Why did you make this?|I was annoyed by the stock Cyclone 2 firmware and got carried away.|
+|Who are you?|A linux geek and professional embedded linux engineer for 10+ years.|
 
 Main features that have been added:
-  - Nintendo Switch 2 Pro controller support. This includes waking the console, the back paddle buttons, the C button, and motion controls (when available).
+  - Nintendo Switch 2 Pro controller support. This includes waking the console, the back paddle buttons, the C button, and motion controls.
   - DualSense controller support.
-  - Up to 8 different connection slots. Connecting with Home+ABXY or Home+UpDownLeftRight switch to a different slot. Each slot can be independently configured to be any supported controller type. For example, you can have 8 different switch2 connections that connect to 8 different consoles, etc...
-  - Up to 8 different remap slots. A remap slot is independent from a connection slot, e.g. it can be applied on top of any connection. Each remap slot can map any input to any output. Additionally there can be up to 16 rules that apply things like "if key is held for 200ms, enable turbo modifier for button B".
-  - Show the "player number" LEDs when provided by the host so you know which pad corresponds to which player.
-  - Configuration and firmware upgrades through USB or bluetooth (through a python-based text and graphical interface, a web-based interface, or android app).
-  - Support multiple controllers connecting through a single dongle.
+  - Up to 8 different connection slots. Each slot can be a different controller type. Connect with a specific slot by using Home+ABXY or Home+UpDownLeftRight when not currently connected.
+  - Up to 8 different remap slots. Each remap slot can map any input to any output. Additionally there can be rules like "if L4 is held for 200ms, enable turbo modifier for buttons A and B". A remap slot is independent from a connection slot. Each connection slot has a default remap slot assigned but can be switched at runtime. All remap slots inherit from a base remap config.
+  - Show the "player number" LEDs so you know which pad corresponds to which player.
+  - Configuration and firmware upgrades through USB or bluetooth
+  - Support multiple controllers connecting through a single dongle on linux (see tools/padhub.c)
 
-Note: Not all the gamepads support all the same features. For example, the 8BitDo Ultimate 2C only has 16KiB of RAM so it only supports 4 connection and remap slots and 8 rules per remap slot. Neither the Nova 2 Lite or Ultimate 2C Wireless support motion controls.
-
-The top-level Nix flake pins the build environment in `flake.lock`:
+## Building / Installing
 
 ```
-nix develop                       # native C/Python tools
-nix build .#linux                  # standalone Linux updater, core/platform archives
-nix build .#windows                # Windows cross-build, core/platform archives
-nix develop .#android              # Android SDK, NDK, JDK and build tools
-nix develop .#emulator             # Android emulator and system image too
-nix flake check                    # core, host and launcher regression checks
+Build firmware:
+$ nix develop .# -c make firmware
+
+Build android APK:
+$ nix develop .# -c make android
+
+Install from cmdline:
+$ ./build/host/jollymaam install
 ```
 
-`nix develop .#static` supplies the musl static toolchain, and
-`nix develop .#windows` supplies the Windows cross toolchain. All Nix package
-and shell definitions live directly in `flake.nix`; Linux and Windows updater
-packages share one definition that invokes Make. Current development environments
-target x86_64 Linux;
-Android native builds produce separate target-ABI libraries.
+## How to enter recovery mode
+
+|Device|Instructions|USB Product|
+|--|--|--|
+|Gamesir Cyclone 2|Hold Logo/Home + Menu/Start button while plugging in USB.|BR23UBOOT1.00 mass storage|
+|Gamesir Nova 2 Lite|Hold Logo/Home + Menu/Start button while plugging in USB.|BR23UBOOT1.00 mass storage|
+|8BitDo Ultimate 2C Wireless|Unplug USB. Hold Logo/Home button for 8 seconds to turn off pad. Hold L1+R1 and tap Logo/Home button. Red pairing LED blinks.|8BitDo Boot HID|
+|8BitDo Ultimate 2C Bluetooth|Unplug USB. Hold Logo/Home button for 8 seconds to turn off pad. Hold L1+R1 and tap Logo/Home button. Red pairing LED blinks.|8BitDo Boot HID|
