@@ -94,9 +94,33 @@ jobs:
       - uses: actions/upload-artifact@v7
         with: { name: jollymaam.apk, path: out/jollymaam.apk, if-no-files-found: error }
 
+  # python-jollymaam.zip: padtool (GUI and CLI) with the firmware package and
+  # jollymaam for Linux and Windows (tools/padtool/padtool_dist.py).
+  python:
+    needs: [firmware, jollymaam]
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the version is git describe, as for the firmware.
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: ./.github/actions/nix
+        with: { key: python }
+      - uses: actions/download-artifact@v8
+        with: { name: firmware, path: in }
+      - uses: actions/download-artifact@v8
+        with: { name: jollymaam-linux-x86_64, path: in }
+      - uses: actions/download-artifact@v8
+        with: { name: jollymaam.exe, path: in }
+      - run: |
+          nix develop --profile "$RUNNER_TEMP/dev" -c python3 tools/padtool/padtool_dist.py \
+            --package in/firmware.zip --jollymaam in/jollymaam-linux-x86_64 --jollymaam-windows in/jollymaam.exe \
+            --version "$(git describe --always --dirty)" --out out/python-jollymaam.zip
+      - uses: actions/upload-artifact@v7
+        with: { name: python-jollymaam.zip, path: out/python-jollymaam.zip, if-no-files-found: error }
+
   release:
     if: github.ref_type == 'tag'
-    needs: [firmware, jollymaam, android]
+    needs: [firmware, jollymaam, android, python]
     runs-on: ubuntu-latest
     permissions:
       contents: write

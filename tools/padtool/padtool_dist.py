@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Package padtool for Windows and Linux: make padtool-dist.
+"""python-jollymaam: padtool for Windows and Linux in one zip (make padtool-dist;
+on a release tag, CI's python-jollymaam.zip).
 
-    tools/padtool/padtool_dist.py --build build --version ID --out build/padtool-ID.zip
+    tools/padtool/padtool_dist.py --package build/firmware.zip --jollymaam build/host/jollymaam \
+        [--jollymaam-windows jollymaam.exe] --version ID --out build/python-jollymaam-ID.zip
 
-The zip holds padtool (CLI and GUI, without its tests), the Jieli RAM
-loaders the GUI's flasher needs (br23loader.bin, bd19loader.bin, beside
-padflash.py, where it looks first), bleak with its WinRT backend for 64-bit
-Windows and its BlueZ one (dbus_fast) for x86-64 Linux, Python 3.11-3.14
-(padtool/lib, which padble puts on the path: on Linux after the system's
-own), and every board's firmware from the build.  bleak comes from PyPI
-through uv (cross-platform resolution; pip judges the markers by this
-machine), cached in the build directory.
+The zip holds padtool (CLI and GUI, without its tests); the firmware package
+unpacked as firmware/ (the GUI's default package and padinstall's images);
+the Jieli RAM loaders beside padflash.py, where the GUI's own flasher looks
+first; jollymaam for Linux and Windows in padtool/bin, which the GUI's
+Install, Backup, Upgrade and Restore run; and bleak with its WinRT backend
+for 64-bit Windows and its BlueZ one (dbus_fast) for x86-64 Linux, Python
+3.11-3.14 (padtool/lib, which padble puts on the path: on Linux after the
+system's own).  bleak comes from PyPI through uv (cross-platform resolution;
+pip judges the markers by this machine), cached beside the output.
 
 Python itself is not included: on Windows python.org's 64-bit installer,
 with Tk."""
@@ -28,18 +31,6 @@ BLEAK = "bleak==2.1.1"            # the version padble was tested with (BlueZ)
 PYTHONS = ["3.11", "3.12", "3.13", "3.14"]   # 3.10 gets an older winrt, other files
 PLATFORMS = {"win": "x86_64-pc-windows-msvc", "linux": "x86_64-unknown-linux-gnu"}
 COMPILED = (".pyd", ".so")
-SDK = ROOT / "external" / "jieli-fw-AC63_BT_SDK"
-LOADERS = [SDK / "cpu" / "br23" / "tools" / "br23loader.bin", SDK / "cpu" / "bd19" / "tools" / "bd19loader.bin"]
-# Board build directory: the files a user flashes (firmware.img through the
-# ROM loader or the 8BitDo's boot loader, update.bin through the updater:
-# padtool update).
-BOARDS = {
-    "c2/pad": ["firmware.img", "update.bin"],
-    "c2/dongle": ["firmware.img", "update.bin"],
-    "n2/pad": ["firmware.img", "update.bin"],
-    "n2/dongle": ["firmware.img", "update.bin"],
-    "u2cw/pad": ["firmware.img", "update.bin"],
-}
 
 # Launchers beside the padtool folder, opened by double-click through the
 # .py (a console) or .pyw (none) file association; they run the tool from
@@ -51,18 +42,21 @@ sys.path.insert(0, os.path.dirname(tool))
 sys.argv[0] = tool{extra}
 runpy.run_path(tool, run_name="__main__")
 """
-README = """padtool {version} for Windows and Linux
+README = """python-jollymaam {version}: padtool for Windows and Linux
 
 Needs 64-bit Python 3.11 to 3.14 from python.org (with "tcl/tk" and the
 "py launcher", both on by default).  Nothing to install: bleak, for
 Bluetooth, is in padtool\\lib.
 
+  padgui.pyw               the GUI (double-click): Install, Backup, Upgrade
+                           and Restore for the device selected in its list
+                           (jollymaam, in padtool\\bin, does them), from
+                           the firmware folder here or a package loaded
+                           with Load Package; and every setting
   Install firmware.py      puts this firmware on a pad or dongle by USB,
                            the first time from its stock firmware: it asks
                            for admin, waits for one, says what it is and
                            asks before it writes
-  padgui.pyw               the GUI (double-click); it asks for admin, for
-                           the ROM loader's disk
   padgui (no admin).pyw    the GUI without asking: USB tool devices and
                            Bluetooth; whether the ROM loader works so is
                            not established
@@ -77,7 +71,7 @@ Linux (x86-64, Python 3.11 to 3.14; the GUI needs tkinter): the same files,
 padtool\\lib's bleak is used when the system has none.  BlueZ and
 permission for the tool devices (padtool/README.md) as for a checkout.
 
-firmware\\<board>\\ holds this build's firmware:
+firmware\\ is this release's firmware package (manifest.txt); firmware\\<board>\\:
   update.bin     padtool.py update firmware\\<board>\\update.bin
                  (a pad or dongle already running this firmware, on USB)
   firmware.img   for Install firmware and the GUI's flasher: the ROM loader
@@ -125,12 +119,15 @@ def merge(trees, lib):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--build", type=Path, default=ROOT / "build")
+    p.add_argument("--package", type=Path, required=True, help="the firmware package (make firmware: build/firmware.zip)")
+    p.add_argument("--jollymaam", type=Path, required=True, help="jollymaam for Linux (x86-64, static)")
+    p.add_argument("--jollymaam-windows", type=Path, help="jollymaam.exe (nix build .#windows)")
     p.add_argument("--version", default="dev")
-    p.add_argument("--out", type=Path)
+    p.add_argument("--out", type=Path, required=True)
     a = p.parse_args()
-    out = a.out or a.build / f"padtool-{a.version}.zip"
-    stage = a.build / "padtool-dist" / f"padtool-{a.version}"
+    out = a.out
+    work = out.parent / "python-jollymaam"
+    stage = work / f"python-jollymaam-{a.version}"
     shutil.rmtree(stage, ignore_errors=True)
     tool = stage / "padtool"
     tool.mkdir(parents=True)
@@ -141,21 +138,25 @@ def main():
                 (tool / f.name).write_text(f.read_text().replace("tools/padtool/", "padtool/"))
             else:
                 shutil.copy2(f, tool / f.name)
-    for f in LOADERS:
-        if not f.is_file():
-            sys.exit(f"padtool_dist: no {f} (git submodule update --init external/jieli-fw-AC63_BT_SDK)")
+    # The GUI's words: the web page's catalog (padstrings.py).
+    (tool / "strings").mkdir()
+    for f in sorted((ROOT / "web" / "strings").glob("*.json")):
+        shutil.copy2(f, tool / "strings" / f.name)
+    firmware = stage / "firmware"
+    with zipfile.ZipFile(a.package) as z:
+        if "manifest.txt" not in z.namelist():
+            sys.exit(f"padtool_dist: {a.package} is not a firmware package (no manifest.txt)")
+        z.extractall(firmware)
+    for f in sorted((firmware / "loaders").glob("*loader.bin")):
         shutil.copy2(f, tool / f.name)
+    (tool / "bin").mkdir()
+    for src, name in ((a.jollymaam, "jollymaam"), (a.jollymaam_windows, "jollymaam.exe")):
+        if src:
+            shutil.copy2(src, tool / "bin" / name)
+            (tool / "bin" / name).chmod(0o755)
 
-    cache = a.build / "padtool-dist" / "wheels"
+    cache = work / "wheels"
     merge([bleak_for(p, v, cache) for p in PLATFORMS for v in PYTHONS], tool / "lib")
-
-    for board, names in BOARDS.items():
-        for name in names:
-            f = a.build / board / name
-            if not f.is_file():
-                sys.exit(f"padtool_dist: no {f} (make {board})")
-            (stage / "firmware" / board).mkdir(parents=True, exist_ok=True)
-            shutil.copy2(f, stage / "firmware" / board / name)
 
     (stage / "Install firmware.py").write_text(LAUNCHER.format(what="padinstall", tool="padinstall.py", extra=""))
     (stage / "padgui.pyw").write_text(LAUNCHER.format(what="padgui", tool="padgui.pyw", extra=""))

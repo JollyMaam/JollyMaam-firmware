@@ -67,8 +67,9 @@ unmodified Telink B80 SDK and its link layer, with our own LE host on top
   `build/stress/`),
   `buildcommits.sh` (build a range of commits, for bisecting),
   `stackdepth.py` (the 8BitDo's deepest stack use, from its disassembly),
-  `tools/padtool/padtool_dist.py` (`make padtool-dist`, make/padtool.mk: the Windows and Linux zip of padtool, bleak,
-  the RAM loaders and every board's firmware; `tools/padtool/padinstall.py` is its
+  `tools/padtool/padtool_dist.py` (`make padtool-dist`, src/make/padtool.mk; CI's release asset
+  python-jollymaam.zip: the Windows and Linux zip of padtool, bleak, the firmware package and
+  jollymaam, which the GUI's Install/Backup/Upgrade/Restore run; `tools/padtool/padinstall.py` is its
   first-install flasher).
 - `external/`: the SDKs and BTstack as submodules, `fetch-toolchains.sh` for
   the compilers.  BTstack is our fork of upstream plus bug fixes only.
