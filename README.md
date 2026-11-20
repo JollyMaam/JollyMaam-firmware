@@ -36,6 +36,8 @@ Install from cmdline:
 $ ./build/host/jollymaam install
 ```
 
+[Latest Release](./releases/latest)
+
 ## How to enter recovery mode
 
 |Device|Instructions|USB Product|
@@ -44,3 +46,34 @@ $ ./build/host/jollymaam install
 |Gamesir Nova 2 Lite|Hold Logo/Home + Menu/Start button while plugging in USB.|BR23UBOOT1.00 mass storage|
 |8BitDo Ultimate 2C Wireless|Unplug USB. Hold Logo/Home button for 8 seconds to turn off pad. Hold L1+R1 and tap Logo/Home button. Red pairing LED blinks.|8BitDo Boot HID|
 |8BitDo Ultimate 2C Bluetooth|Unplug USB. Hold Logo/Home button for 8 seconds to turn off pad. Hold L1+R1 and tap Logo/Home button. Red pairing LED blinks.|8BitDo Boot HID|
+
+## How to use
+
+|Legend|Description|
+|--|--|
+|Slot Key|A, B, X, Y, Dpad-Up, Dpad-Down, Dpad-Left, Dpad-Right|
+|Macro Key|On Gamesir pads, the M button at the bottom, 8BitDo pads the star turbo button|
+|Button|One of A, B, X, Y, L1/R1, L3/R3 (sticks), L4/R4 (paddles)
+
+|When|Key|Action|
+|--|--|--|
+|Any|Home+Turbo for 3 seconds|Enter configuration mode|
+|Configuration Mode|Home|Exit configuration mode|
+|Disconnected|Home|Connect to default slot|
+|Disconnected|Home+Slot|Connect to specific slot|
+|Connected|Home+Select/Capture|Disconnect|
+|Connected|Home+Turbo|Enter Quick Settings|
+|Quick Settings|Home|Exit Quit Settings|
+|Quick Settings|Home+Slot|Use remap slot|
+|Quick Settings|Home+L1/R1|Cycle through rumble strength|
+|Quick Settings|Macro+Button|Record macro|
+|Quick Settings|Double tap Macro and hold, then Button|Record repeating macro|
+|Quick Settings|Button|Cycle through turbo modes|
+
+Note: A Quick Setting only lasts until the next disconnect. It does not persist in settings.
+
+## To Configure
+
+[Web-based Configuration](https://jollymaam.github.io). Uses WebHID and WebBluetooth, supported on Chrome browsers.
+
+Or use the android app.
