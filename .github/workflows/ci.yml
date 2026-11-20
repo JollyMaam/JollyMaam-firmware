@@ -124,6 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
       id-token: write
       attestations: write
     steps:
@@ -132,10 +133,20 @@ jobs:
       - run: cd out && sha256sum -- * > SHA256SUMS
       - uses: actions/attest-build-provenance@v4
         with: { subject-path: 'out/*' }
-      # A draft: flash and test these files, then publish it on GitHub.
+      # One release per tag: a draft to flash and test, then publish it on
+      # GitHub. If a release for the tag was already made by hand, the files
+      # go into that one instead, and a published one gets its web page now
+      # (its "published" event came before the files).
       - env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" out/* -R "$GITHUB_REPOSITORY" \
-            --draft --verify-tag --generate-notes --title "$TAG"
+          if draft=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json isDraft -q .isDraft 2>/dev/null); then
+            gh release upload "$TAG" out/* -R "$GITHUB_REPOSITORY" --clobber
+            if [ "$draft" = false ]; then
+              gh workflow run pages.yml -R "$GITHUB_REPOSITORY" -f tag="$TAG"
+            fi
+          else
+            gh release create "$TAG" out/* -R "$GITHUB_REPOSITORY" \
+              --draft --verify-tag --generate-notes --title "$TAG"
+          fi
