@@ -7,6 +7,11 @@
 |8BitDo Ultimate 2C Wireless|
 |8BitDo Ultimate 2C Bluetooth|BLE only|
 
+Known issues:
+- Batteries not calibrated
+- Possible sleep mode / low-power issues
+- Gamesir Nova 2 Lite LEDs do not work reliably
+
 |Question|Answer|
 |--|--|
 |Did a human write this README?|Yes.|
@@ -26,6 +31,9 @@ Main features that have been added:
 ## Building / Installing
 
 ```
+Fetch toolchains:
+$ cd external && ./fetch-toolchains.sh
+
 Build firmware:
 $ nix develop .# -c make firmware
 
@@ -58,6 +66,9 @@ $ ./build/host/jollymaam install
 |When|Key|Action|
 |--|--|--|
 |Any|Home+Turbo for 3 seconds|Enter configuration mode|
+|Any|Home+L2|Enter calibration mode|
+|Calibration|Home|Exit calibration mode without saving|
+|Calibration|A or B|Save calibration|
 |Configuration Mode|Home|Exit configuration mode|
 |Disconnected|Home|Connect to default slot|
 |Disconnected|Home+Slot|Connect to specific slot|
